@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Swipe de Ofertas — Lamparina</title>
+<style>
+  :root {
+    --bg: #0a0a0a; --s1: #141414; --s2: #1c1c1c; --s3: #2a2a2a; --linha: #262626;
+    --txt: #ececec; --fraco: #9a9a9a; --apagado: #666;
+    --lar: #fd5802; --lar-sutil: rgba(253, 88, 2, .14);
+    --verde: #3fb68b; --vermelho: #e5534b; --amarelo: #d9a441; --azul: #5b9bd5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--txt); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--lar); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .esconde { display: none !important; }
+
+  /* Login */
+  #login { min-height: 100vh; display: grid; place-items: center; }
+  #login form { background: var(--s1); border: 1px solid var(--linha); border-radius: 14px; padding: 32px; width: min(360px, 92vw); }
+  #login h1 { margin: 0 0 4px; font-size: 20px; }
+  #login p { margin: 0 0 20px; color: var(--fraco); }
+  #login .erro { color: var(--vermelho); margin-top: 10px; min-height: 1.4em; }
+
+  /* Topo */
+  header { position: sticky; top: 0; z-index: 5; background: rgba(10, 10, 10, .92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--linha); }
+  .topo { display: flex; align-items: center; gap: 18px; padding: 12px 20px; flex-wrap: wrap; }
+  .marca { font-weight: 700; font-size: 16px; letter-spacing: .2px; white-space: nowrap; }
+  .marca span { color: var(--lar); }
+  nav { display: flex; gap: 4px; }
+  nav button { background: none; border: 0; padding: 7px 12px; border-radius: 8px; color: var(--fraco); }
+  nav button.ativa { background: var(--s2); color: var(--txt); }
+  .resumo { display: flex; gap: 14px; margin-left: auto; color: var(--fraco); font-size: 13px; flex-wrap: wrap; }
+  .resumo b { color: var(--txt); font-weight: 600; }
+  .resumo .quente b { color: var(--lar); }
+  .aviso { background: var(--lar-sutil); border-bottom: 1px solid rgba(253, 88, 2, .35); padding: 9px 20px; font-size: 13px; }
+
+  main { padding: 18px 20px 60px; max-width: 1500px; margin: 0 auto; }
+
+  /* Controles */
+  .campo { background: var(--s1); border: 1px solid var(--linha); border-radius: 8px; padding: 7px 10px; outline: none; }
+  .campo:focus { border-color: var(--lar); }
+  select.campo { padding-right: 6px; }
+  .btn { background: var(--s2); border: 1px solid var(--s3); border-radius: 8px; padding: 7px 12px; white-space: nowrap; }
+  .btn:hover { border-color: #444; }
+  .btn.primario { background: var(--lar); border-color: var(--lar); color: #0a0a0a; font-weight: 600; }
+  .btn.primario:hover { filter: brightness(1.08); }
+  .btn.pequeno { padding: 4px 9px; font-size: 12.5px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .filtros .campo[type=search] { min-width: 220px; flex: 1 1 220px; }
+  .fases { display: flex; gap: 4px; }
+  .fase-chip { border: 1px solid var(--s3); background: var(--s1); border-radius: 999px; padding: 5px 11px; font-size: 13px; color: var(--fraco); }
+  .fase-chip.on { border-color: var(--lar); color: var(--txt); background: var(--lar-sutil); }
+  .contagem { color: var(--fraco); font-size: 13px; margin: 0 0 10px; }
+
+  /* Tabela de ofertas */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--linha); vertical-align: middle; }
+  th { color: var(--apagado); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tbody tr.oferta { cursor: pointer; }
+  tbody tr.oferta:hover { background: var(--s1); }
+  .of { display: flex; gap: 10px; align-items: center; min-width: 260px; }
+  .thumb { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; background: var(--s2); flex: none; }
+  .thumb.vazio { display: grid; place-items: center; color: var(--apagado); font-size: 11px; }
+  .of .dom { font-weight: 600; }
+  .of .tit { color: var(--fraco); font-size: 12.5px; max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .score { font-weight: 700; color: var(--lar); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--s3); white-space: nowrap; }
+  .badge.escalada { border-color: var(--lar); color: var(--lar); background: var(--lar-sutil); }
+  .badge.veterana { border-color: var(--amarelo); color: var(--amarelo); }
+  .badge.validando { border-color: var(--azul); color: var(--azul); }
+  .badge.teste { color: var(--fraco); }
+  .tend { font-size: 12.5px; white-space: nowrap; }
+  .tend.crescendo { color: var(--verde); }
+  .tend.caindo, .tend.sumiu { color: var(--vermelho); }
+  .tend.nova { color: var(--lar); }
+  .tend.estável { color: var(--fraco); }
+  .funil { color: var(--fraco); font-size: 12px; white-space: nowrap; }
+  .marca-ic { font-size: 12px; color: var(--fraco); }
+  .marca-ic.favorita { color: var(--lar); }
+  .mais { text-align: center; margin: 16px 0; }
+  .vazio-msg { color: var(--fraco); padding: 40px 0; text-align: center; }
+
+  /* Painel lateral */
+  #painel-fundo { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); z-index: 9; }
+  #painel { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100vw); background: var(--s1); border-left: 1px solid var(--linha); z-index: 10; overflow-y: auto; padding: 22px 24px 60px; }
+  #painel h2 { margin: 0; font-size: 19px; word-break: break-all; }
+  .fechar { position: sticky; top: 0; float: right; background: var(--s2); border: 1px solid var(--s3); border-radius: 8px; padding: 4px 10px; }
+  .metricas { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin: 16px 0; }
+  .metrica { background: var(--s2); border-radius: 10px; padding: 10px 12px; }
+  .metrica .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .metrica .r { color: var(--fraco); font-size: 12px; }
+  .secao { margin-top: 22px; }
+  .secao h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--apagado); font-weight: 600; margin: 0 0 10px; }
+  .links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .acoes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .acoes .btn.on { border-color: var(--lar); color: var(--lar); }
+  textarea.campo { width: 100%; min-height: 70px; resize: vertical; margin-top: 8px; }
+  .graf { background: var(--s2); border-radius: 10px; padding: 12px; }
+  .graf svg { width: 100%; height: 90px; display: block; }
+  .graf .leg { display: flex; gap: 14px; font-size: 12px; color: var(--fraco); margin-top: 6px; }
+  .anuncios { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .anuncio { background: var(--s2); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .anuncio img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--s3); display: block; }
+  .anuncio .corpo { padding: 10px; font-size: 12.5px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
+  .anuncio .meta { color: var(--fraco); font-size: 12px; }
+  .anuncio .txt { color: #cfcfcf; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .anuncio .rodape { margin-top: auto; display: flex; gap: 10px; font-size: 12px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { background: var(--s2); border-radius: 999px; padding: 3px 9px; font-size: 12px; color: var(--fraco); }
+
+  /* Buscas, coletas e config */
+  .cartao { background: var(--s1); border: 1px solid var(--linha); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .cartao h3 { margin: 0 0 12px; font-size: 15px; }
+  .linha-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .linha-form .campo.cresce { flex: 1 1 260px; }
+  .dica { color: var(--fraco); font-size: 12.5px; margin: 8px 0 0; }
+  .st { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--s2); white-space: nowrap; }
+  .st.processada { color: var(--verde); }
+  .st.erro { color: var(--vermelho); }
+  .st.rodando, .st.fila { color: var(--amarelo); }
+  .desligada td { opacity: .45; }
+  .interruptor { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .config-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+  .config-grade label { display: flex; flex-direction: column; gap: 6px; color: var(--fraco); font-size: 13px; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--s2); border: 1px solid var(--s3); padding: 10px 16px; border-radius: 10px; z-index: 20; max-width: 90vw; }
+  #toast.erro { border-color: var(--vermelho); }
+
+  @media (max-width: 900px) {
+    .col-opc { display: none; }
+    .resumo { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<section id="login">
+  <form id="form-login">
+    <h1>Swipe de <span style="color:var(--lar)">Ofertas</span></h1>
+    <p>Ofertas escaladas da Biblioteca de Anúncios, atualizadas todo dia.</p>
+    <input id="senha" class="campo" type="password" placeholder="Senha" autocomplete="current-password" style="width:100%">
+    <button class="btn primario" style="width:100%;margin-top:12px">Entrar</button>
+    <div class="erro" id="login-erro"></div>
+  </form>
+</section>
+
+<div id="app" class="esconde">
+  <header>
+    <div class="topo">
+      <div class="marca">Swipe de <span>Ofertas</span></div>
+      <nav>
+        <button data-aba="ofertas" class="ativa">Ofertas</button>
+        <button data-aba="buscas">Buscas</button>
+        <button data-aba="coletas">Coletas</button>
+        <button data-aba="config">Configuração</button>
+      </nav>
+      <div class="resumo" id="resumo"></div>
+    </div>
+    <div class="aviso esconde" id="aviso"></div>
+  </header>
+
+  <main>
+    <!-- Ofertas -->
+    <section id="aba-ofertas">
+      <div class="filtros">
+        <input id="f-texto" class="campo" type="search" placeholder="Buscar domínio, título ou texto">
+        <div class="fases" id="f-fases">
+          <button class="fase-chip on" data-fase="escalada">Escalada</button>
+          <button class="fase-chip on" data-fase="veterana">Veterana</button>
+          <button class="fase-chip on" data-fase="validando">Validando</button>
+          <button class="fase-chip" data-fase="teste">Teste</button>
+        </div>
+        <select id="f-tipo" class="campo" title="Tipo de oferta">
+          <option value="info">Infoproduto</option>
+          <option value="x1">X1 (WhatsApp)</option>
+          <option value="fisico">Físico</option>
+          <option value="app">App</option>
+          <option value="outros">Outros</option>
+          <option value="todos">Todos os tipos</option>
+        </select>
+        <select id="f-min-dias" class="campo" title="Dias no ar">
+          <option value="0">Qualquer idade</option>
+          <option value="7">7+ dias no ar</option>
+          <option value="14">14+ dias</option>
+          <option value="30">30+ dias</option>
+          <option value="60">60+ dias</option>
+          <option value="90">90+ dias</option>
+        </select>
+        <select id="f-tendencia" class="campo" title="Tendência">
+          <option value="">Qualquer tendência</option>
+          <option value="crescendo">Crescendo</option>
+          <option value="nova">Nova</option>
+          <option value="estável">Estável</option>
+          <option value="caindo">Caindo</option>
+          <option value="sumiu">Sumiu</option>
+        </select>
+        <select id="f-busca" class="campo" title="Busca de origem"><option value="">Todas as buscas</option></select>
+        <select id="f-pais" class="campo" title="País"><option value="">Todos os países</option></select>
+        <select id="f-marca" class="campo" title="Marcação">
+          <option value="">Sem as descartadas</option>
+          <option value="favorita">Favoritas</option>
+          <option value="analisar">Para analisar</option>
+          <option value="descartada">Descartadas</option>
+          <option value="sem">Sem marcação</option>
+          <option value="todas">Todas</option>
+        </select>
+        <select id="f-ordem" class="campo" title="Ordenar por">
+          <option value="score">Ordenar: score</option>
+          <option value="dias_no_ar">Dias no ar</option>
+          <option value="variacoes">Variações</option>
+          <option value="anuncios_ativos">Anúncios ativos</option>
+          <option value="novos_7d">Novos em 7 dias</option>
+          <option value="paginas">Páginas</option>
+          <option value="delta_ativos">Crescimento</option>
+          <option value="primeira_vez">Mais recentes</option>
+        </select>
+      </div>
+      <p class="contagem" id="contagem"></p>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Oferta</th><th>Fase</th><th class="num">Score</th><th class="num">Dias</th>
+            <th class="num">Ativos</th><th class="num">Variações</th><th class="num col-opc">Páginas</th>
+            <th class="num col-opc">Novos 7d</th><th>Tendência</th><th class="col-opc">Funil (URL)</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="lista"></tbody>
+      </table>
+      <div class="mais esconde" id="mais"><button class="btn">Carregar mais</button></div>
+    </section>
+
+    <!-- Buscas -->
+    <section id="aba-buscas" class="esconde">
+      <div class="cartao">
+        <h3>Adicionar buscas</h3>
+        <form class="linha-form" id="form-busca">
+          <select id="b-tipo" class="campo">
+            <option value="termo">Palavra-chave</option>
+            <option value="pagina">Página do anunciante (URL)</option>
+            <option value="url">URL de busca da Biblioteca</option>
+          </select>
+          <textarea id="b-termos" class="campo cresce" rows="1" placeholder="Um termo por linha. Ex.: instant access"></textarea>
+          <input id="b-pais" class="campo" value="US" maxlength="3" style="width:70px" title="País (código ISO ou ALL)">
+          <input id="b-nicho" class="campo" placeholder="Nicho (opcional)" style="width:160px">
+          <button class="btn primario">Adicionar</button>
+        </form>
+        <p class="dica">Termos de chamada para ação e de forma de entrega rendem mais que o nome do nicho. Para vigiar um anunciante, cole a URL da página do Facebook dele.</p>
+      </div>
+      <div class="cartao">
+        <div class="linha-form" style="justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0" id="b-titulo">Buscas</h3>
+          <div class="linha-form">
+            <span class="dica" style="margin:0" id="b-custo"></span>
+            <button class="btn primario" id="rodar-todas">Rodar todas agora</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Ativa</th><th>Busca</th><th>País</th><th class="col-opc">Nicho</th><th>Última coleta</th><th class="num">Anúncios</th><th></th></tr></thead>
+          <tbody id="lista-buscas"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Coletas -->
+    <section id="aba-coletas" class="esconde">
+      <div class="cartao">
+        <div class="linha-form" style="justify-content:space-between;margin-bottom:10px">
+          <h3 style="margin:0">Últimas coletas</h3>
+          <button class="btn" id="atualizar-coletas">Atualizar</button>
+        </div>
+        <table>
+          <thead><tr><th>Quando</th><th>Busca</th><th>País</th><th>Status</th><th class="num">Anúncios</th><th class="num">Custo</th><th class="col-opc">Detalhe</th></tr></thead>
+          <tbody id="lista-coletas"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Configuração -->
+    <section id="aba-config" class="esconde">
+      <div class="cartao">
+        <h3>Coleta automática</h3>
+        <div class="config-grade">
+          <label>
+            Coleta diária (8h de Brasília)
+            <span class="interruptor"><input type="checkbox" id="c-ativo"> <span id="c-ativo-txt">ligada</span></span>
+          </label>
+          <label>Anúncios por busca (10 a 500)<input id="c-max-ads" class="campo" type="number" min="10" max="500"></label>
+          <label>Coletas ao mesmo tempo (1 a 10)<input id="c-paralelo" class="campo" type="number" min="1" max="10"></label>
+          <label>Janela de "anúncio visto" (dias)<input id="c-janela" class="campo" type="number" min="1" max="14"></label>
+        </div>
+        <p class="dica">A janela define até quantos dias um anúncio que não apareceu na última coleta continua contando para a oferta. Com coleta diária, 3 dias absorvem as variações da busca da Biblioteca.</p>
+        <div style="margin-top:14px"><button class="btn primario" id="salvar-config">Salvar</button></div>
+      </div>
+      <div class="cartao">
+        <h3>Como o ranking é calculado</h3>
+        <p class="dica" style="margin-top:0">Os anúncios são agrupados por oferta (domínio da página de destino) e recebem a mesma nota da skill minerar-ofertas: tempo no ar, variações do mesmo criativo, páginas diferentes rodando a mesma oferta, anúncios ativos e anúncios novos nos últimos 7 dias, todos em escala logarítmica.</p>
+        <p class="dica"><b>Teste:</b> menos de 7 dias. <b>Validando:</b> 7 a 30 dias, ou mais sem sinal de escala. <b>Escalada:</b> 30+ dias e (10+ variações, 2+ páginas ou 3+ anúncios novos na semana). <b>Veterana:</b> 90+ dias sem os sinais de escala.</p>
+        <p class="dica"><b>Tendência:</b> compara com a foto de 7 dias atrás (ou a mais recente, no começo). <b>Sumiu:</b> nenhum anúncio da oferta apareceu dentro da janela.</p>
+      </div>
+      <div class="cartao">
+        <h3>Sessão</h3>
+        <button class="btn" id="sair">Sair</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="painel-fundo" class="esconde"></div>
+<aside id="painel" class="esconde"></aside>
+<div id="toast" class="esconde"></div>
+
+<script>
+const API = "https://zdpiertlotdpxdufsjhr.supabase.co/functions/v1/swipe";
+const PRECO_ANUNCIO = 0.000575, PRECO_EXECUCAO = 0.005;
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+// Todo texto de anúncio vem de terceiros: sempre escapar.
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const urlSegura = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "");
+const num = (v) => (v == null ? "-" : Number(v).toLocaleString("pt-BR"));
+const dataBR = (v) => (v ? new Date(v).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-");
+const diaBR = (v) => (v ? new Date(v + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "-");
+
+let senha = localStorage.getItem("swipe_senha") || "";
+let estado = { offset: 0, total: 0, config: null, buscas: [] };
+
+async function api(acao, dados = {}) {
+  const r = await fetch(API, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-senha": senha },
+    body: JSON.stringify({ acao, ...dados }),
+  });
+  const corpo = await r.json().catch(() => ({ erro: `HTTP ${r.status}` }));
+  if (r.status === 401) { sair(corpo.erro); throw new Error(corpo.erro); }
+  if (!r.ok || corpo.erro) throw new Error(corpo.erro || `HTTP ${r.status}`);
+  return corpo;
+}
+
+let toastTimer;
+function toast(msg, erro = false) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = erro ? "erro" : "";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add("esconde"), 3500);
+}
+
+// ---------- Login ----------
+$("#form-login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  senha = $("#senha").value;
+  $("#login-erro").textContent = "";
+  try {
+    await api("ping");
+    localStorage.setItem("swipe_senha", senha);
+    iniciar();
+  } catch (err) {
+    $("#login-erro").textContent = err.message;
+  }
+});
+function sair(msg) {
+  localStorage.removeItem("swipe_senha");
+  senha = "";
+  $("#app").classList.add("esconde");
+  $("#login").classList.remove("esconde");
+  if (msg) $("#login-erro").textContent = msg;
+}
+$("#sair").addEventListener("click", () => sair());
+
+async function iniciar() {
+  $("#login").classList.add("esconde");
+  $("#app").classList.remove("esconde");
+  await Promise.all([carregarResumo(), carregarBuscas()]);
+  carregarOfertas();
+}
+
+// ---------- Abas ----------
+$$("nav button").forEach((b) =>
+  b.addEventListener("click", () => {
+    $$("nav button").forEach((x) => x.classList.toggle("ativa", x === b));
+    $$("main > section").forEach((s) => s.classList.toggle("esconde", s.id !== `aba-${b.dataset.aba}`));
+    if (b.dataset.aba === "buscas") carregarBuscas();
+    if (b.dataset.aba === "coletas") carregarColetas();
+    if (b.dataset.aba === "config") preencherConfig();
+  })
+);
+
+// ---------- Resumo ----------
+async function carregarResumo() {
+  try {
+    const r = await api("resumo");
+    estado.config = r.config;
+    const f = r.fases || {};
+    $("#resumo").innerHTML = `
+      <span class="quente"><b>${num(f.escalada || 0)}</b> escaladas</span>
+      <span><b>${num(f.veterana || 0)}</b> veteranas</span>
+      <span><b>${num(f.validando || 0)}</b> validando</span>
+      <span><b>${num(r.novas_hoje)}</b> novas hoje</span>
+      <span><b>${num(r.anuncios)}</b> anúncios</span>
+      <span>última coleta <b>${dataBR(r.ultima_coleta)}</b></span>
+      <span>Apify 30d <b>US$ ${Number(r.custo_30d || 0).toFixed(2)}</b></span>`;
+    const aviso = $("#aviso");
+    if (!r.apify) {
+      aviso.textContent = "Falta configurar o token do Apify no Supabase (secret APIFY_TOKEN). Sem ele a coleta não roda.";
+      aviso.classList.remove("esconde");
+    } else if (r.na_fila) {
+      aviso.textContent = `${r.na_fila} coleta(s) na fila ou rodando. O ranking atualiza sozinho conforme terminam (de 5 em 5 minutos).`;
+      aviso.classList.remove("esconde");
+    } else {
+      aviso.classList.add("esconde");
+    }
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+// ---------- Ofertas ----------
+function filtros() {
+  return {
+    texto: $("#f-texto").value,
+    fases: $$("#f-fases .on").map((b) => b.dataset.fase),
+    tipo: $("#f-tipo").value,
+    min_dias: Number($("#f-min-dias").value),
+    tendencia: $("#f-tendencia").value,
+    busca: $("#f-busca").value,
+    pais: $("#f-pais").value,
+    marca: $("#f-marca").value,
+    ordem: $("#f-ordem").value,
+    incluir_sumidas: $("#f-tendencia").value === "sumiu",
+  };
+}
+
+const TEND = { crescendo: "▲ crescendo", caindo: "▼ caindo", nova: "● nova", "estável": "= estável", sumiu: "✕ sumiu" };
+function tendencia(o) {
+  const t = o.tendencia || "nova";
+  const d = o.delta_ativos ? ` (${o.delta_ativos > 0 ? "+" : ""}${o.delta_ativos})` : "";
+  return `<span class="tend ${esc(t)}">${esc(TEND[t] || t)}${d}</span>`;
+}
+function thumb(src, cls = "thumb") {
+  const u = urlSegura(src);
+  return u
+    ? `<img class="${cls}" src="${u}" loading="lazy" referrerpolicy="no-referrer" alt="" onerror="this.outerHTML='<div class=&quot;${cls} vazio&quot;>sem img</div>'">`
+    : `<div class="${cls} vazio">sem img</div>`;
+}
+
+async function carregarOfertas(mais = false) {
+  if (!mais) estado.offset = 0;
+  try {
+    const r = await api("ofertas", { filtros: { ...filtros(), offset: estado.offset, limite: 100 } });
+    estado.total = r.total || 0;
+    const html = (r.ofertas || []).map((o, i) => `
+      <tr class="oferta" data-chave="${esc(o.chave)}">
+        <td class="num" style="color:var(--apagado)">${estado.offset + i + 1}</td>
+        <td><div class="of">${thumb(o.imagem_exemplo)}<div style="min-width:0">
+          <div class="dom">${esc(o.dominio || (o.paginas_nomes || [])[0] || o.chave)}</div>
+          <div class="tit">${esc(o.titulo_exemplo || o.texto_exemplo || "")}</div></div></div></td>
+        <td><span class="badge ${esc(o.fase)}">${esc(o.fase)}</span></td>
+        <td class="num score">${esc(o.score)}</td>
+        <td class="num">${num(o.dias_no_ar)}</td>
+        <td class="num">${num(o.anuncios_ativos)}</td>
+        <td class="num">${num(o.variacoes)}</td>
+        <td class="num col-opc">${num(o.paginas)}</td>
+        <td class="num col-opc">${num(o.novos_7d)}</td>
+        <td>${tendencia(o)}</td>
+        <td class="funil col-opc">${esc(o.funil_pela_url || "-")}</td>
+        <td class="marca-ic ${esc(o.marca)}">${o.marca === "favorita" ? "★" : o.marca === "analisar" ? "analisar" : o.marca === "descartada" ? "descartada" : ""}</td>
+      </tr>`).join("");
+    if (mais) $("#lista").insertAdjacentHTML("beforeend", html);
+    else $("#lista").innerHTML = html || `<tr><td colspan="12" class="vazio-msg">Nenhuma oferta com esses filtros${estado.total === 0 && !mais ? ". Se o sistema acabou de ser criado, rode as buscas na aba Buscas." : "."}</td></tr>`;
+    estado.offset += (r.ofertas || []).length;
+    $("#contagem").textContent = `${num(estado.total)} ofertas · mostrando ${num(estado.offset)}`;
+    $("#mais").classList.toggle("esconde", estado.offset >= estado.total);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+$("#mais button").addEventListener("click", () => carregarOfertas(true));
+$("#lista").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr.oferta");
+  if (tr) abrirOferta(tr.dataset.chave);
+});
+let buscaTimer;
+$("#f-texto").addEventListener("input", () => { clearTimeout(buscaTimer); buscaTimer = setTimeout(() => carregarOfertas(), 350); });
+$$(".filtros select").forEach((s) => s.addEventListener("change", () => carregarOfertas()));
+$$("#f-fases .fase-chip").forEach((b) => b.addEventListener("click", () => { b.classList.toggle("on"); carregarOfertas(); }));
+
+// ---------- Painel da oferta ----------
+function grafico(hist) {
+  if (!hist || hist.length < 2) return `<p class="dica" style="margin:0">O histórico aparece a partir da segunda coleta.</p>`;
+  const w = 600, h = 90, p = 6;
+  const serie = (campo, cor) => {
+    const vals = hist.map((x) => Number(x[campo]) || 0);
+    const max = Math.max(...vals, 1), min = Math.min(...vals, 0);
+    const pts = vals.map((v, i) => `${p + (i * (w - 2 * p)) / (vals.length - 1)},${h - p - ((v - min) / (max - min || 1)) * (h - 2 * p)}`).join(" ");
+    return `<polyline fill="none" stroke="${cor}" stroke-width="2" points="${pts}"/>`;
+  };
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${serie("score", "#fd5802")}${serie("anuncios_ativos", "#5b9bd5")}${serie("variacoes", "#3fb68b")}</svg>
+    <div class="leg"><span style="color:#fd5802">score</span><span style="color:#5b9bd5">anúncios ativos</span><span style="color:#3fb68b">variações</span>
+    <span style="margin-left:auto">${diaBR(hist[0].dia)} → ${diaBR(hist[hist.length - 1].dia)}</span></div>`;
+}
+
+async function abrirOferta(chave) {
+  const painel = $("#painel");
+  painel.innerHTML = `<button class="fechar">Fechar</button><p class="dica">Carregando…</p>`;
+  painel.classList.remove("esconde");
+  $("#painel-fundo").classList.remove("esconde");
+  try {
+    const { oferta: o, anuncios, hist } = await api("oferta", { chave });
+    const formatos = Object.entries(o.formatos || {}).map(([k, v]) => `${k.toLowerCase()}: ${v}`).join(" · ");
+    painel.innerHTML = `
+      <button class="fechar">Fechar</button>
+      <h2>${esc(o.dominio || (o.paginas_nomes || [])[0] || o.chave)}</h2>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="badge ${esc(o.fase)}">${esc(o.fase)}</span> ${tendencia(o)}
+        <span class="chip">${esc(o.tipo)}</span>
+        ${o.ia ? `<span class="chip">criativo com IA</span>` : ""}
+        <span class="chip">vista pela 1ª vez em ${diaBR(o.primeira_vez)}</span>
+      </div>
+      <div class="links">
+        ${urlSegura(o.link_exemplo) ? `<a class="btn pequeno" href="${urlSegura(o.link_exemplo)}" target="_blank" rel="noopener noreferrer">Abrir página</a>` : ""}
+        ${(o.biblioteca || []).filter(urlSegura).map((u, i) => `<a class="btn pequeno" href="${urlSegura(u)}" target="_blank" rel="noopener noreferrer">Biblioteca ${i + 1}</a>`).join("")}
+        <button class="btn pequeno" id="copiar">Copiar para o Claude</button>
+      </div>
+      <div class="metricas">
+        <div class="metrica"><div class="v" style="color:var(--lar)">${esc(o.score)}</div><div class="r">score</div></div>
+        <div class="metrica"><div class="v">${num(o.dias_no_ar)}</div><div class="r">dias no ar</div></div>
+        <div class="metrica"><div class="v">${num(o.anuncios_ativos)}</div><div class="r">anúncios ativos</div></div>
+        <div class="metrica"><div class="v">${num(o.variacoes)}</div><div class="r">variações</div></div>
+        <div class="metrica"><div class="v">${num(o.paginas)}</div><div class="r">páginas</div></div>
+        <div class="metrica"><div class="v">${num(o.novos_7d)}</div><div class="r">novos em 7 dias</div></div>
+      </div>
+      <div class="secao"><h3>Marcação</h3>
+        <div class="acoes">
+          ${["favorita", "analisar", "descartada"].map((s) => `<button class="btn pequeno ${o.marca === s ? "on" : ""}" data-marca="${s}">${s === "favorita" ? "★ Favorita" : s === "analisar" ? "Analisar" : "Descartar"}</button>`).join("")}
+          ${o.marca ? `<button class="btn pequeno" data-marca="">Limpar</button>` : ""}
+        </div>
+        <textarea class="campo" id="nota" placeholder="Anotação (ângulo, mecanismo, por que modelar ou não)">${esc(o.nota || "")}</textarea>
+        <button class="btn pequeno" id="salvar-nota" style="margin-top:6px">Salvar anotação</button>
+      </div>
+      <div class="secao"><h3>Evolução</h3><div class="graf">${grafico(hist)}</div></div>
+      <div class="secao"><h3>Detalhes</h3>
+        <div class="chips">
+          ${o.funil_pela_url ? `<span class="chip">funil pela URL: ${esc(o.funil_pela_url)}</span>` : ""}
+          ${formatos ? `<span class="chip">${esc(formatos)}</span>` : ""}
+          ${(o.paises || []).map((p) => `<span class="chip">${esc(p)}</span>`).join("")}
+        </div>
+        <p class="dica">Páginas: ${esc((o.paginas_nomes || []).join(" · ") || "-")}</p>
+        <p class="dica">Buscas que acharam: ${esc((o.buscas || []).join(" · ") || "-")}</p>
+      </div>
+      <div class="secao"><h3>Anúncios (${anuncios.length})</h3>
+        <div class="anuncios">
+          ${anuncios.map((a) => `
+            <div class="anuncio">
+              ${urlSegura(a.imagem) ? `<img src="${urlSegura(a.imagem)}" loading="lazy" referrerpolicy="no-referrer" alt="" onerror="this.remove()">` : ""}
+              <div class="corpo">
+                <div class="meta">${esc(a.pagina)} · ${a.ativo === false ? "inativo" : "ativo"} · desde ${diaBR(a.inicio)} · ${num(a.variacoes)} var.</div>
+                ${a.titulo ? `<b>${esc(a.titulo)}</b>` : ""}
+                <div class="txt">${esc(a.texto)}</div>
+                <div class="rodape">
+                  ${urlSegura(a.url_biblioteca) ? `<a href="${urlSegura(a.url_biblioteca)}" target="_blank" rel="noopener noreferrer">Biblioteca</a>` : ""}
+                  ${urlSegura(a.link) ? `<a href="${urlSegura(a.link)}" target="_blank" rel="noopener noreferrer">Destino</a>` : ""}
+                  ${a.cta ? `<span style="color:var(--fraco)">${esc(a.cta)}</span>` : ""}
+                </div>
+              </div>
+            </div>`).join("")}
+        </div>
+      </div>`;
+
+    $$("[data-marca]", painel).forEach((b) => b.addEventListener("click", async () => {
+      try {
+        await api("marcar", { chave, status: b.dataset.marca, nota: $("#nota").value || null });
+        toast("Marcação salva");
+        abrirOferta(chave);
+        carregarOfertas();
+      } catch (e) { toast(e.message, true); }
+    }));
+    $("#salvar-nota", painel).addEventListener("click", async () => {
+      try {
+        await api("marcar", { chave, status: o.marca || null, nota: $("#nota").value || null });
+        toast("Anotação salva");
+      } catch (e) { toast(e.message, true); }
+    });
+    $("#copiar", painel).addEventListener("click", async () => {
+      const resumo = {
+        dominio: o.dominio, fase: o.fase, score: o.score, dias_no_ar: o.dias_no_ar, anuncios_ativos: o.anuncios_ativos,
+        variacoes: o.variacoes, paginas: o.paginas, novos_7d: o.novos_7d, tendencia: o.tendencia,
+        link: o.link_exemplo, titulos: [...new Set(anuncios.map((a) => a.titulo).filter(Boolean))].slice(0, 5),
+        biblioteca: o.biblioteca, paginas_nomes: o.paginas_nomes,
+      };
+      await navigator.clipboard.writeText(`Analisa esta oferta do swipe (agente analista-oferta):\n${JSON.stringify(resumo, null, 1)}`);
+      toast("Copiado. Cole no Claude Code.");
+    });
+  } catch (e) {
+    painel.innerHTML = `<button class="fechar">Fechar</button><p class="dica">${esc(e.message)}</p>`;
+  }
+}
+function fecharPainel() { $("#painel").classList.add("esconde"); $("#painel-fundo").classList.add("esconde"); }
+$("#painel").addEventListener("click", (e) => { if (e.target.closest(".fechar")) fecharPainel(); });
+$("#painel-fundo").addEventListener("click", fecharPainel);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharPainel(); });
+
+// ---------- Buscas ----------
+async function carregarBuscas() {
+  try {
+    const { buscas, coletas } = await api("buscas");
+    estado.buscas = buscas;
+    const ultima = new Map();
+    for (const c of coletas) if (!ultima.has(c.busca_id)) ultima.set(c.busca_id, c);
+
+    const rotulo = (b) => (b.tipo === "termo" ? b.termo : `${b.tipo}: ${b.termo}`);
+    const sel = $("#f-busca"), atual = sel.value;
+    sel.innerHTML = `<option value="">Todas as buscas</option>` + buscas.map((b) => `<option value="${esc(rotulo(b))}">${esc(rotulo(b))}</option>`).join("");
+    sel.value = atual;
+    const pSel = $("#f-pais"), pAtual = pSel.value;
+    pSel.innerHTML = `<option value="">Todos os países</option>` + [...new Set(buscas.map((b) => b.pais))].map((p) => `<option>${esc(p)}</option>`).join("");
+    pSel.value = pAtual;
+
+    const ativas = buscas.filter((b) => b.ativo).length;
+    const maxAds = estado.config?.max_ads ?? 100;
+    const dia = ativas * (PRECO_EXECUCAO + maxAds * PRECO_ANUNCIO);
+    $("#b-titulo").textContent = `Buscas (${ativas} ativas de ${buscas.length})`;
+    $("#b-custo").textContent = `custo máximo estimado: US$ ${dia.toFixed(2)}/dia · US$ ${(dia * 30).toFixed(0)}/mês`;
+
+    $("#lista-buscas").innerHTML = buscas.map((b) => {
+      const c = ultima.get(b.id);
+      return `<tr class="${b.ativo ? "" : "desligada"}" data-id="${b.id}">
+        <td><input type="checkbox" data-acao="ativo" ${b.ativo ? "checked" : ""}></td>
+        <td>${b.tipo === "termo" ? "" : `<span class="chip">${esc(b.tipo)}</span> `}${esc(b.termo)}</td>
+        <td>${esc(b.pais)}</td>
+        <td class="col-opc">${esc(b.nicho || "")}</td>
+        <td>${c ? `<span class="st ${esc(c.status)}">${esc(c.status)}</span> ${dataBR(c.processado_em || c.criado_em)}` : `<span class="dica">nunca</span>`}</td>
+        <td class="num">${c?.anuncios != null ? num(c.anuncios) : "-"}</td>
+        <td style="white-space:nowrap;text-align:right">
+          <button class="btn pequeno" data-acao="ver">Ver ofertas</button>
+          <button class="btn pequeno" data-acao="rodar">Rodar</button>
+          <button class="btn pequeno" data-acao="apagar">Apagar</button>
+        </td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="vazio-msg">Nenhuma busca cadastrada.</td></tr>`;
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+$("#form-busca").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const termos = $("#b-termos").value.split("\n").map((t) => t.trim()).filter(Boolean);
+  if (!termos.length) return;
+  try {
+    for (const termo of termos) {
+      await api("busca_salvar", { termo, tipo: $("#b-tipo").value, pais: $("#b-pais").value, nicho: $("#b-nicho").value });
+    }
+    $("#b-termos").value = "";
+    toast(`${termos.length} busca(s) adicionada(s)`);
+    carregarBuscas();
+  } catch (err) { toast(err.message, true); }
+});
+$("#lista-buscas").addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-acao]");
+  if (!el) return;
+  const id = Number(el.closest("tr").dataset.id);
+  const b = estado.buscas.find((x) => x.id === id);
+  try {
+    if (el.dataset.acao === "ativo") {
+      await api("busca_salvar", { ...b, ativo: el.checked });
+      carregarBuscas();
+    } else if (el.dataset.acao === "rodar") {
+      el.disabled = true;
+      const r = await api("coletar", { ids: [id] });
+      toast(r.enfileiradas ? "Coleta iniciada. O resultado aparece em alguns minutos." : "Essa busca já está na fila ou rodando.");
+      carregarBuscas(); carregarResumo();
+    } else if (el.dataset.acao === "apagar") {
+      if (el.dataset.confirma !== "1") { el.dataset.confirma = "1"; el.textContent = "Confirmar"; return; }
+      await api("busca_apagar", { id });
+      carregarBuscas();
+    } else if (el.dataset.acao === "ver") {
+      $("#f-busca").value = b.tipo === "termo" ? b.termo : `${b.tipo}: ${b.termo}`;
+      $$("#f-fases .fase-chip").forEach((x) => x.classList.add("on"));
+      $('nav button[data-aba="ofertas"]').click();
+      carregarOfertas();
+    }
+  } catch (err) { toast(err.message, true); }
+});
+$("#rodar-todas").addEventListener("click", async (e) => {
+  e.target.disabled = true;
+  try {
+    const r = await api("coletar");
+    toast(`${r.enfileiradas} coleta(s) na fila. Rodam ${estado.config?.max_paralelo ?? 3} por vez; o ranking atualiza sozinho.`);
+    carregarBuscas(); carregarResumo();
+  } catch (err) { toast(err.message, true); }
+  e.target.disabled = false;
+});
+
+// ---------- Coletas ----------
+async function carregarColetas() {
+  try {
+    const { coletas } = await api("coletas");
+    $("#lista-coletas").innerHTML = coletas.map((c) => `<tr>
+      <td>${dataBR(c.criado_em)}</td>
+      <td>${esc(c.tipo === "termo" ? c.termo : `${c.tipo}: ${c.termo}`)}</td>
+      <td>${esc(c.pais)}</td>
+      <td><span class="st ${esc(c.status)}">${esc(c.status)}</span></td>
+      <td class="num">${c.anuncios != null ? num(c.anuncios) : "-"}</td>
+      <td class="num">${c.custo_usd != null ? "US$ " + Number(c.custo_usd).toFixed(3) : "-"}</td>
+      <td class="col-opc dica" style="margin:0">${esc(c.erro || (c.processado_em ? "processada " + dataBR(c.processado_em) : c.iniciado_em ? "iniciada " + dataBR(c.iniciado_em) : ""))}</td>
+    </tr>`).join("") || `<tr><td colspan="7" class="vazio-msg">Nenhuma coleta ainda.</td></tr>`;
+  } catch (e) { toast(e.message, true); }
+}
+$("#atualizar-coletas").addEventListener("click", carregarColetas);
+
+// ---------- Configuração ----------
+function preencherConfig() {
+  const c = estado.config || {};
+  $("#c-ativo").checked = c.ativo !== false;
+  $("#c-ativo-txt").textContent = c.ativo !== false ? "ligada" : "desligada";
+  $("#c-max-ads").value = c.max_ads ?? 100;
+  $("#c-paralelo").value = c.max_paralelo ?? 3;
+  $("#c-janela").value = c.janela_dias ?? 3;
+}
+$("#c-ativo").addEventListener("change", (e) => ($("#c-ativo-txt").textContent = e.target.checked ? "ligada" : "desligada"));
+$("#salvar-config").addEventListener("click", async () => {
+  try {
+    const r = await api("config_salvar", {
+      ativo: $("#c-ativo").checked,
+      max_ads: Number($("#c-max-ads").value),
+      max_paralelo: Number($("#c-paralelo").value),
+      janela_dias: Number($("#c-janela").value),
+    });
+    estado.config = r.config;
+    preencherConfig();
+    toast("Configuração salva");
+  } catch (e) { toast(e.message, true); }
+});
+
+// Enquanto houver coleta rodando, atualiza o resumo de tempos em tempos.
+setInterval(() => { if (senha && !$("#app").classList.contains("esconde")) carregarResumo(); }, 60000);
+
+if (senha) api("ping").then(iniciar).catch(() => sair());
+</script>
+</body>
+</html>
