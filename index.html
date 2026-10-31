@@ -633,11 +633,11 @@ async function abrirOferta(chave) {
         </div>
       </div>`;
 
-    $("video", painel).forEach((v) => v.addEventListener("error", () => {
+    $$("video", painel).forEach((v) => v.addEventListener("error", () => {
       v.outerHTML = `<div class="midia-erro">O link do vídeo venceu. Ele é renovado na próxima coleta deste anúncio; enquanto isso, abra pela Biblioteca.</div>`;
     }));
-    $("[data-baixar]", painel).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); baixarMidia(el); }));
-    $("[data-marca]", painel).forEach((b) => b.addEventListener("click", async () => {
+    $$("[data-baixar]", painel).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); baixarMidia(el); }));
+    $$("[data-marca]", painel).forEach((b) => b.addEventListener("click", async () => {
       try {
         await api("marcar", { chave, status: b.dataset.marca, nota: $("#nota").value || null });
         toast("Marcação salva");
@@ -759,7 +759,7 @@ $("#chat-form").addEventListener("submit", (e) => { e.preventDefault(); enviarPe
 $("#chat-texto").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviarPergunta($("#chat-texto").value); }
 });
-$("#sugestoes button").forEach((b) => b.addEventListener("click", () => enviarPergunta(b.textContent)));
+$$("#sugestoes button").forEach((b) => b.addEventListener("click", () => enviarPergunta(b.textContent)));
 $("#chat-limpar").addEventListener("click", () => { estado.chat = []; desenharChat(); });
 $("#chat-contexto").addEventListener("click", (e) => {
   if (e.target.id !== "sair-contexto") return;
