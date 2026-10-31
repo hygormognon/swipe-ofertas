@@ -27,7 +27,7 @@ await page.route("**/functions/v1/swipe", async (route) => {
   if (corpo.acao === "coletar") r = { enfileiradas: 1, fonte: "robo" };
   if (corpo.acao === "config_salvar") r = { ok: true, config: { fonte: "robo", ativo: false, max_ads: 80, max_paralelo: 3, janela_dias: 3 } };
   if (corpo.acao === "coletas") r = { coletas: [{ criado_em: new Date().toISOString(), termo: "x", tipo: "termo", pais: "US", status: "erro", erro: "falhou" }] };
-  if (corpo.acao === "ofertas") r = { ofertas: corpo.filtros?.busca ? [oferta(7)] : [oferta(1, comRaioX), oferta(2)], total: corpo.filtros?.busca ? 1 : 2 };
+  if (corpo.acao === "ofertas") r = { ofertas: corpo.filtros?.busca ? [oferta(7)] : [oferta(1, comRaioX), oferta(2, { dominio: "um-dominio-bem-comprido-de-oferta.com", titulo_exemplo: "Um título de anúncio bem longo que ocupa a coluna inteira da tabela e mais um pouco".repeat(2), checkout: "clickbank, digistore24", raiox_em: "2026-10-31", preco: 1297, moeda: "USD", formato_pagina: "vsl + texto" })], total: corpo.filtros?.busca ? 1 : 2 };
   await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(r) });
 });
 await page.goto(html);
@@ -111,8 +111,8 @@ await passo("filtros ativos e limpar", async () => {
 });
 await passo("tabela cabe em 1063px", async () => {
   await page.setViewportSize({ width: 1063, height: 800 });
-  const larg = await page.evaluate(() => document.documentElement.scrollWidth);
-  if (larg > 1063) throw new Error("largura " + larg);
+  const larg = await page.evaluate(() => [document.documentElement.scrollWidth, document.querySelector(".tabela").scrollWidth, document.querySelector(".tabela").clientWidth]);
+  if (larg[0] > 1063 || larg[1] > larg[2]) throw new Error("largura " + larg);
 });
 await passo("aba perguntar abre", async () => { await page.click('nav button[data-aba="perguntar"]'); await page.waitForSelector("#aba-perguntar:not(.esconde)", { timeout: 2000 }); });
 await passo("aba coletas abre", async () => { await page.click('nav button[data-aba="coletas"]'); await page.waitForSelector("#aba-coletas:not(.esconde)", { timeout: 2000 }); });
