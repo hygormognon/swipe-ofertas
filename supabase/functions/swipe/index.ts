@@ -63,7 +63,12 @@ const REDES = /(^|\.)(facebook\.com|fb\.me|instagram\.com|youtube\.com|youtu\.be
 const X1 = /(^|\.)(wa\.me|whatsapp\.com|api\.whatsapp\.com|chat\.whatsapp\.com)$/;
 const APP = /(^|\.)(apps\.apple\.com|itunes\.apple\.com|play\.google\.com)$/;
 
-const cut = (s: unknown, n: number) => (typeof s === "string" ? (s.length > n ? s.slice(0, n) + "…" : s) : "");
+// O Postgres recusa o caractere nulo e metades soltas de emoji (comuns quando o texto
+// é cortado no meio de um par UTF-16); sem limpar, o lote inteiro volta como JSON inválido.
+const limpo = (s: unknown) =>
+  typeof s === "string" ? s.replace(/\u0000|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "") : s;
+const cut = (s: unknown, n: number) =>
+  typeof s === "string" ? String(limpo(s.length > n ? s.slice(0, n) + "…" : s)) : "";
 const toDate = (v: unknown) => {
   if (v == null || v === "") return null;
   const d = typeof v === "number" ? new Date(v < 1e12 ? v * 1000 : v) : new Date(String(v).length === 10 ? `${v}T12:00:00Z` : String(v));
@@ -99,7 +104,7 @@ function normalizar(it: any, busca: string, pais: string) {
   const dom = dominioDe(link, it.linkCaption ?? "");
   const paginaId = String(it.pageId ?? "");
   const chave = dom && !REDES.test(dom) && !X1.test(dom) && !APP.test(dom) ? dom : `pagina:${paginaId}`;
-  return {
+  const linha = {
     id,
     pagina_id: paginaId,
     pagina: it.pageName ?? "",
@@ -125,6 +130,7 @@ function normalizar(it: any, busca: string, pais: string) {
     buscas: busca ? [busca] : [],
     paises: pais ? [pais] : [],
   };
+  return Object.fromEntries(Object.entries(linha).map(([k, v]) => [k, limpo(v)])) as typeof linha;
 }
 
 // ---- Coleta ----
