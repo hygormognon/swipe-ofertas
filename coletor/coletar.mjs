@@ -22,6 +22,7 @@ const flag = (n, d) => {
 const API = process.env.SWIPE_API || "https://zdpiertlotdpxdufsjhr.supabase.co/functions/v1/swipe";
 const KEY = process.env.COLETOR_KEY || "";
 const BASE = "https://www.facebook.com/ads/library/";
+const ORIGEM = process.env.GITHUB_ACTIONS ? "github" : "pc";
 
 const espera = (min, max) => new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
 
@@ -260,12 +261,12 @@ async function main() {
       const t0 = Date.now();
       try {
         const itens = await coletar(browser, b, max_ads);
-        const r = await api("ingerir", { busca_id: b.id, itens });
+        const r = await api("ingerir", { busca_id: b.id, itens, origem: ORIGEM });
         gravadas++;
         console.log(`ok  ${b.pais} "${b.termo}": ${itens.length} anúncios (${r.anuncios} gravados) em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
       } catch (e) {
         console.log(`erro ${b.pais} "${b.termo}": ${e.message}`);
-        await api("ingerir", { busca_id: b.id, erro: e.message }).catch(() => {});
+        await api("ingerir", { busca_id: b.id, erro: e.message, origem: ORIGEM }).catch(() => {});
       }
       await espera(4000, 8000);
     }

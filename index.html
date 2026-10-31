@@ -152,8 +152,14 @@
   #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--s2); border: 1px solid var(--s3); padding: 10px 16px; border-radius: 10px; z-index: 20; max-width: 90vw; }
   #toast.erro { border-color: var(--vermelho); }
 
-  @media (max-width: 900px) {
+  .tabela { overflow-x: auto; }
+  .filtros-ativos { color: var(--lar); }
+  .filtros-ativos a { margin-left: 8px; }
+  @media (max-width: 1280px) {
     .col-opc { display: none; }
+    .of .tit { max-width: 340px; }
+  }
+  @media (max-width: 900px) {
     .resumo { margin-left: 0; width: 100%; }
   }
 </style>
@@ -243,7 +249,8 @@
           <option value="primeira_vez">Mais recentes</option>
         </select>
       </div>
-      <p class="contagem" id="contagem"></p>
+      <p class="contagem"><span id="contagem"></span> <span class="filtros-ativos" id="filtros-ativos"></span></p>
+      <div class="tabela">
       <table>
         <thead>
           <tr>
@@ -254,6 +261,7 @@
         </thead>
         <tbody id="lista"></tbody>
       </table>
+      </div>
       <div class="mais esconde" id="mais"><button class="btn">Carregar mais</button></div>
     </section>
 
@@ -435,6 +443,7 @@ async function iniciar() {
 $$("nav button").forEach((b) =>
   b.addEventListener("click", () => {
     $$("nav button").forEach((x) => x.classList.toggle("ativa", x === b));
+    window.scrollTo(0, 0);
     $$("main > section").forEach((s) => s.classList.toggle("esconde", s.id !== `aba-${b.dataset.aba}`));
     if (b.dataset.aba === "buscas") carregarBuscas();
     if (b.dataset.aba === "coletas") carregarColetas();
@@ -455,7 +464,7 @@ async function carregarResumo() {
       <span><b>${num(r.novas_hoje)}</b> novas hoje</span>
       <span><b>${num(r.anuncios)}</b> anúncios</span>
       <span>última coleta <b>${dataBR(r.ultima_coleta)}</b></span>
-      <span>Apify 30d <b>US$ ${Number(r.custo_30d || 0).toFixed(2)}</b></span>`;
+      ${r.config?.fonte === "apify" ? `<span>Apify 30d <b>US$ ${Number(r.custo_30d || 0).toFixed(2)}</b></span>` : `<span>coleta: <b>robô</b></span>`}`;
     const iaAviso = $("#ia-aviso");
     iaAviso.textContent = "Para usar o Perguntar, cadastre sua chave da API do Claude no Supabase como secret ANTHROPIC_API_KEY.";
     iaAviso.classList.toggle("esconde", Boolean(r.ia));
@@ -492,6 +501,38 @@ function filtros() {
     incluir_sumidas: $("#f-tendencia").value === "sumiu",
   };
 }
+
+const FASES_PADRAO = ["escalada", "veterana", "validando"];
+const ORIGENS = { robo: "robô", "robo-pc": "PC (coleta completa)", "robo-github": "GitHub (só 1ª página)" };
+
+// Mostra ao lado da contagem quais filtros fogem do padrão, com um atalho para limpar.
+function mostrarFiltrosAtivos() {
+  const f = filtros();
+  const rotulo = (sel) => { const s = $(sel); return s.options[s.selectedIndex]?.text || s.value; };
+  const ativos = [];
+  if (f.texto) ativos.push(`texto "${f.texto}"`);
+  if (f.busca) ativos.push(`busca "${f.busca}"`);
+  if (f.pais) ativos.push(`país ${f.pais}`);
+  if (f.tipo !== "info") ativos.push(rotulo("#f-tipo"));
+  if (f.min_dias) ativos.push(rotulo("#f-min-dias"));
+  if (f.tendencia) ativos.push(rotulo("#f-tendencia"));
+  if (f.marca) ativos.push(rotulo("#f-marca"));
+  if (f.fases.join() !== FASES_PADRAO.join()) ativos.push(`fases: ${f.fases.join(", ") || "nenhuma"}`);
+  $("#filtros-ativos").innerHTML = ativos.length
+    ? `· filtros: ${esc(ativos.join(" · "))} <a href="#" id="limpar-filtros">Limpar filtros</a>`
+    : "";
+}
+function limparFiltros() {
+  $("#f-texto").value = "";
+  for (const [sel, valor] of [["#f-tipo", "info"], ["#f-min-dias", "0"], ["#f-tendencia", ""], ["#f-busca", ""], ["#f-pais", ""], ["#f-marca", ""], ["#f-ordem", "score"]]) $(sel).value = valor;
+  $$("#f-fases .fase-chip").forEach((b) => b.classList.toggle("on", FASES_PADRAO.includes(b.dataset.fase)));
+  carregarOfertas();
+}
+$("#filtros-ativos").addEventListener("click", (e) => {
+  if (e.target.id !== "limpar-filtros") return;
+  e.preventDefault();
+  limparFiltros();
+});
 
 const TEND = { crescendo: "▲ crescendo", caindo: "▼ caindo", nova: "● nova", "estável": "= estável", sumiu: "✕ sumiu" };
 function tendencia(o) {
@@ -532,6 +573,7 @@ async function carregarOfertas(mais = false) {
     else $("#lista").innerHTML = html || `<tr><td colspan="12" class="vazio-msg">Nenhuma oferta com esses filtros${estado.total === 0 && !mais ? ". Se o sistema acabou de ser criado, rode as buscas na aba Buscas." : "."}</td></tr>`;
     estado.offset += (r.ofertas || []).length;
     $("#contagem").textContent = `${num(estado.total)} ofertas · mostrando ${num(estado.offset)}`;
+    mostrarFiltrosAtivos();
     $("#mais").classList.toggle("esconde", estado.offset >= estado.total);
   } catch (e) {
     toast(e.message, true);
@@ -874,8 +916,8 @@ async function carregarColetas() {
       <td>${esc(c.pais)}</td>
       <td><span class="st ${esc(c.status)}">${esc(c.status)}</span></td>
       <td class="num">${c.anuncios != null ? num(c.anuncios) : "-"}</td>
-      <td class="num">${c.custo_usd != null ? "US$ " + Number(c.custo_usd).toFixed(3) : "-"}</td>
-      <td class="col-opc dica" style="margin:0">${esc(c.erro || (c.processado_em ? "processada " + dataBR(c.processado_em) : c.iniciado_em ? "iniciada " + dataBR(c.iniciado_em) : ""))}</td>
+      <td class="num">${String(c.run_id || "").startsWith("robo") ? "grátis" : c.custo_usd != null ? "US$ " + Number(c.custo_usd).toFixed(3) : "-"}</td>
+      <td class="col-opc dica" style="margin:0">${esc([ORIGENS[c.run_id], c.erro || (c.processado_em ? "processada " + dataBR(c.processado_em) : c.iniciado_em ? "iniciada " + dataBR(c.iniciado_em) : "")].filter(Boolean).join(" · "))}</td>
     </tr>`).join("") || `<tr><td colspan="7" class="vazio-msg">Nenhuma coleta ainda.</td></tr>`;
   } catch (e) { toast(e.message, true); }
 }

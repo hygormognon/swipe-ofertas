@@ -65,7 +65,7 @@ const X1 = /(^|\.)(wa\.me|whatsapp\.com|api\.whatsapp\.com|chat\.whatsapp\.com)$
 const APP = /(^|\.)(apps\.apple\.com|itunes\.apple\.com|play\.google\.com|adjust\.com|onelink\.me|app\.link|appsflyer\.com|go\.link)$/;
 // Marketplaces (físico) e plataformas de produto digital juntam muitos vendedores no mesmo
 // domínio: nos dois casos a oferta é agrupada por página, como nas redes.
-const MARKET = /(^|\.)(amazon\.[a-z.]+|amzn\.to|ebay\.[a-z.]+|walmart\.com|temu\.com|aliexpress\.com|shein\.com)$/;
+const MARKET = /(^|\.)(amazon\.[a-z.]+|amzn\.to|ebay\.[a-z.]+|walmart\.com|temu\.com|aliexpress\.com|shein\.com|dhgate\.com|wish\.com)$/;
 const PLATAFORMA = /(^|\.)(etsy\.com|teacherspayteachers\.com|gumroad\.com|udemy\.com|skillshare\.com|stan\.store|payhip\.com|ko-fi\.com|patreon\.com)$/;
 
 // O Postgres recusa o caractere nulo e metades soltas de emoji (comuns quando o texto
@@ -222,9 +222,11 @@ async function ingerirDoRobo(b: any) {
     const n = await gravarItens(Array.isArray(b.itens) ? b.itens : [], busca);
     linha = { status: "processada", anuncios: n, custo_usd: 0, processado_em: agora };
   }
-  const base = { busca_id: busca.id, termo: busca.termo, tipo: busca.tipo, pais: busca.pais, iniciado_em: agora, run_id: "robo" };
+  // run_id guarda de onde veio a coleta (robo-pc ou robo-github), para a tela mostrar.
+  const origem = `robo-${String(b.origem || "pc").replace(/[^a-z]/g, "").slice(0, 10) || "pc"}`;
+  const base = { busca_id: busca.id, termo: busca.termo, tipo: busca.tipo, pais: busca.pais, iniciado_em: agora, run_id: origem };
   const r = fila?.length
-    ? await SB.from("swipe_coletas").update({ ...linha, iniciado_em: agora, run_id: "robo" }).eq("id", fila[0].id)
+    ? await SB.from("swipe_coletas").update({ ...linha, iniciado_em: agora, run_id: origem }).eq("id", fila[0].id)
     : await SB.from("swipe_coletas").insert({ ...base, ...linha, max_ads: (await config()).max_ads });
   if (r.error) throw r.error;
   return { ok: true, anuncios: "anuncios" in linha ? linha.anuncios : 0 };
@@ -474,7 +476,8 @@ async function rotear(acao: string, b: any, via: "senha" | "cron" | "coletor") {
       return { ok: true, config: novo };
     }
     case "coletas": {
-      const { data, error } = await SB.from("swipe_coletas").select("*").order("id", { ascending: false }).limit(100);
+      const { data, error } = await SB.from("swipe_coletas").select("*")
+        .order("processado_em", { ascending: false, nullsFirst: true }).order("id", { ascending: false }).limit(100);
       if (error) throw error;
       return { coletas: data };
     }

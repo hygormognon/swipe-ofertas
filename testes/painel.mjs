@@ -67,6 +67,19 @@ await passo("adicionar busca", async () => { await page.click('nav button[data-a
 await passo("rodar busca", async () => { await page.click('#lista-buscas tr[data-id="2"] [data-acao="rodar"]'); await page.waitForTimeout(400); if (!chamadas.some((c) => c.startsWith("coletar"))) throw new Error("nao rodou"); });
 await passo("filtro de fase recarrega", async () => { const n = chamadas.length; await page.click('nav button[data-aba="ofertas"]'); await page.click("[data-fase=teste]"); await page.waitForTimeout(400); if (chamadas.length === n) throw new Error("nao recarregou"); });
 await passo("busca por texto", async () => { const n = chamadas.length; await page.fill("#f-texto", "abc"); await page.waitForTimeout(700); if (!chamadas.slice(n).some((c) => c.includes("\"texto\":\"abc\""))) throw new Error("nao filtrou"); });
+await passo("filtros ativos e limpar", async () => {
+  const aviso = await page.textContent("#filtros-ativos");
+  if (!aviso.includes("Limpar filtros")) throw new Error("sem aviso de filtro: " + aviso);
+  await page.click("#limpar-filtros"); await page.waitForTimeout(500);
+  const depois = await page.textContent("#filtros-ativos");
+  const busca = await page.$eval("#f-busca", (s) => s.value);
+  if (depois.trim() || busca) throw new Error(`continuou filtrado: "${depois}" busca=${busca}`);
+});
+await passo("tabela cabe em 1063px", async () => {
+  await page.setViewportSize({ width: 1063, height: 800 });
+  const larg = await page.evaluate(() => document.documentElement.scrollWidth);
+  if (larg > 1063) throw new Error("largura " + larg);
+});
 await passo("aba perguntar abre", async () => { await page.click('nav button[data-aba="perguntar"]'); await page.waitForSelector("#aba-perguntar:not(.esconde)", { timeout: 2000 }); });
 await passo("aba coletas abre", async () => { await page.click('nav button[data-aba="coletas"]'); await page.waitForSelector("#aba-coletas:not(.esconde)", { timeout: 2000 }); });
 await passo("aba config abre", async () => { await page.click('nav button[data-aba="config"]'); await page.waitForSelector("#aba-config:not(.esconde)", { timeout: 2000 }); });
