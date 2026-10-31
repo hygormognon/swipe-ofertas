@@ -13,7 +13,7 @@ Como ler os números de uma oferta:
 - raio-X da página (quando já foi lido): preco e moeda do front (o menor preço da página; confira em precos), preco_usd (convertido por câmbio aproximado), checkout (plataformas detectadas), formato_pagina (vsl, quiz, tsl, página), player, order_bump e garantia_dias. Sem raio-X, esses campos vêm vazios.
 - fase: teste (menos de 7 dias), validando (7 a 30 dias, ou mais sem sinal de escala), escalada (30+ dias e 10+ variações, 2+ páginas ou 3+ anúncios novos na semana), veterana (90+ dias sem os sinais de escala).
 - tendência: compara com a foto de cerca de 7 dias atrás (nova, crescendo, estável, caindo, sumiu).
-- tipo: info (infoproduto), x1 (WhatsApp), fisico, marketplace, app, outros.
+- tipo: info (infoproduto), x1 (WhatsApp), fisico (inclui anúncio de catálogo e página que o raio-X leu como loja física), marketplace, app, marca (empresa grande, banco, ONG, político, governo, universidade), outros.
 - A coleta começou em 30/10/2026, então tendência e histórico ainda são curtos.
 
 Como trabalhar:
@@ -74,7 +74,7 @@ function ferramentas(d: Deps) {
         properties: {
           texto: { type: "string", description: "Trecho buscado no domínio, no título ou no texto do anúncio de exemplo (ex.: 'crochet', 'bíblia')." },
           fases: { type: "array", items: { type: "string", enum: ["teste", "validando", "escalada", "veterana"] }, description: "Sem isto, todas as fases." },
-          tipo: { type: "string", enum: ["info", "x1", "fisico", "marketplace", "app", "outros", "todos"], description: "Padrão: info." },
+          tipo: { type: "string", enum: ["info", "x1", "fisico", "marketplace", "app", "marca", "outros", "todos"], description: "Padrão: info." },
           pais: { type: "string", description: "Código do país, ex.: US ou BR." },
           min_dias: { type: "integer", description: "Mínimo de dias no ar." },
           tendencia: { type: "string", enum: ["nova", "crescendo", "estável", "caindo", "sumiu"] },

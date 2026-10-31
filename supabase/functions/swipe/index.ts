@@ -66,8 +66,16 @@ const X1 = /(^|\.)(wa\.me|whatsapp\.com|api\.whatsapp\.com|chat\.whatsapp\.com)$
 const APP = /(^|\.)(apps\.apple\.com|itunes\.apple\.com|play\.google\.com|adjust\.com|onelink\.me|app\.link|appsflyer\.com|go\.link)$/;
 // Marketplaces (físico) e plataformas de produto digital juntam muitos vendedores no mesmo
 // domínio: nos dois casos a oferta é agrupada por página, como nas redes.
-const MARKET = /(^|\.)(amazon\.[a-z.]+|amzn\.to|ebay\.[a-z.]+|walmart\.com|temu\.com|aliexpress\.com|shein\.com|dhgate\.com|wish\.com)$/;
+const MARKET = /(^|\.)(amazon\.[a-z.]+|amzn\.to|ebay\.[a-z.]+|walmart\.com|temu\.com|aliexpress\.com|shein\.com|dhgate\.com|wish\.com|mercadoli[bv]re\.com(\.[a-z]+)?|shopee\.[a-z.]+|magazineluiza\.com\.br|magalu\.com|americanas\.com\.br|casasbahia\.com\.br|wayfair\.com|target\.com|bestbuy\.com|store\.playstation\.com|store\.steampowered\.com)$/;
 const PLATAFORMA = /(^|\.)(etsy\.com|teacherspayteachers\.com|gumroad\.com|udemy\.com|skillshare\.com|stan\.store|payhip\.com|ko-fi\.com|patreon\.com)$/;
+// Encurtadores escondem o destino e juntam anunciantes diferentes: agrupa por página.
+const ENCURTADOR = /(^|\.)(bit\.ly|geni\.us|tinyurl\.com|rebrand\.ly|cutt\.ly|ow\.ly|t\.co|lnk\.bio|beacons\.ai|tr\.ee|l\.ead\.me|shorturl\.at|is\.gd|bl\.ink)$/;
+// Redirecionador de mídia (anúncio de grande anunciante via agência): não é oferta.
+const RASTREIO = /(^|\.)(doubleclick\.net|googleadservices\.com|dartsearch\.net|atdmt\.com|flashtalking\.com|adform\.net|sizmek\.com)$/;
+// Empresa grande, banco, ONG, político, governo e universidade: anunciam, mas não são oferta para modelar.
+const MARCA = /(^|\.)(aarp\.org|capitalone\.com|chase\.com|chatgpt\.com|openai\.com|datadoghq\.com|charitywater\.org|rainforest-alliance\.org|actblue\.com|winred\.com|reclameaqui\.com\.br|britania\.com\.br|infinitepay\.io|jim\.com|facebookblueprint\.com|meta\.com|google\.com|microsoft\.com|grupoboticario\.com\.br|natura\.com\.br|nubank\.com\.br|itau\.com\.br|bradesco\.com\.br|santander\.com\.br|paypal\.com|netflix\.com|spotify\.com)$|\.(gov|gov\.br|mil|edu|edu\.br)$/;
+// Anúncio de catálogo (DPA): o título vem com variável de produto, coisa de e-commerce.
+const CATALOGO = /\{\{\s*product\./i;
 
 // O Postgres recusa o caractere nulo e metades soltas de emoji (comuns quando o texto
 // é cortado no meio de um par UTF-16); sem limpar, o lote inteiro volta como JSON inválido.
@@ -94,9 +102,10 @@ function classificar(texto: string, titulo: string, cta: string, link: string, d
   if (!dom) return /message|mensaje|mensagem|whatsapp/.test(cta.toLowerCase()) ? "x1" : "outros";
   if (X1.test(dom)) return "x1";
   if (APP.test(dom)) return "app";
-  if (REDES.test(dom)) return "outros";
+  if (REDES.test(dom) || RASTREIO.test(dom)) return "outros";
   if (MARKET.test(dom)) return "marketplace";
-  if (/\/products?\/|\/collections\/|\/cart/.test(link) || /contra ?entrega|pago contra|frete gr[aá]tis|env[ií]o gratis|free shipping|cash on delivery/.test(txt)) return "fisico";
+  if (MARCA.test(dom)) return "marca";
+  if (CATALOGO.test(txt) || /\/products?\/|\/collections\/|\/cart/.test(link) || /contra ?entrega|pago contra|frete gr[aá]tis|env[ií]o gratis|free shipping|cash on delivery/.test(txt)) return "fisico";
   return "info";
 }
 
@@ -110,7 +119,8 @@ function normalizar(it: any, busca: string, pais: string) {
   const cta = it.ctaText ?? "";
   const dom = dominioDe(link, it.linkCaption ?? "");
   const paginaId = String(it.pageId ?? "");
-  const chave = dom && !REDES.test(dom) && !X1.test(dom) && !APP.test(dom) && !MARKET.test(dom) && !PLATAFORMA.test(dom) ? dom : `pagina:${paginaId}`;
+  const porPagina = [REDES, X1, APP, MARKET, PLATAFORMA, ENCURTADOR, RASTREIO].some((re) => re.test(dom));
+  const chave = dom && !porPagina ? dom : `pagina:${paginaId}`;
   const linha = {
     id,
     pagina_id: paginaId,
@@ -283,10 +293,7 @@ async function processar() {
       saida.erros++;
     }
   }
-  if (mudou) {
-    const { error } = await SB.rpc("swipe_recalcular");
-    if (error) throw error;
-  }
+  if (mudou) await recalcular();
 
   const vagas = Math.max(0, cfg.max_paralelo - saida.rodando);
   if (vagas) {
@@ -431,13 +438,24 @@ async function raioxGravar(b: any) {
     formato: txt(b.formato, 30),
     order_bump: typeof b.order_bump === "boolean" ? b.order_bump : null,
     garantia_dias: Number.isInteger(b.garantia_dias) ? b.garantia_dias : null,
+    fisico: b.fisico === true,
     idioma: txt(b.idioma, 10),
     erro: txt(b.erro, 300),
     lido_em: new Date().toISOString(),
   };
   const { error } = await SB.from("swipe_paginas").upsert(linha);
   if (error) throw error;
+  if (linha.fisico) await SB.rpc("swipe_aplicar_raiox");
   return { ok: true };
+}
+
+// Recalcula o ranking e reaplica o que o raio-X sabe (página de loja física vira "fisico").
+async function recalcular() {
+  const { data, error } = await SB.rpc("swipe_recalcular");
+  if (error) throw error;
+  const r = await SB.rpc("swipe_aplicar_raiox");
+  if (r.error) throw r.error;
+  return data;
 }
 
 // "Vigiar" um anunciante: vira uma busca do tipo página, que o robô coleta todo dia,
@@ -564,11 +582,8 @@ async function rotear(acao: string, b: any, via: "senha" | "cron" | "coletor") {
     }
     case "processar":
       return await processar();
-    case "recalcular": {
-      const { data, error } = await SB.rpc("swipe_recalcular");
-      if (error) throw error;
-      return { ofertas: data };
-    }
+    case "recalcular":
+      return { ofertas: await recalcular() };
     default:
       throw new Error(`ação desconhecida: ${acao}`);
   }

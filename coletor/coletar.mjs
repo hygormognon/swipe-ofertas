@@ -268,7 +268,7 @@ async function rodarRaioX(browser) {
     try {
       const r = await raioX(browser, p.link);
       await api("raiox_gravar", { chave: p.chave, url: p.link, ...r });
-      console.log(`ok  raio-X ${p.chave}: ${r.preco != null ? `${r.moeda} ${r.preco}` : "sem preço"} · ${r.checkout || "sem checkout"} · ${r.formato} em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+      console.log(`ok  raio-X ${p.chave}: ${r.preco != null ? `${r.moeda} ${r.preco}` : "sem preço"} · ${r.checkout || "sem checkout"} · ${r.formato}${r.fisico ? " · loja física" : ""} em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
     } catch (e) {
       const msg = e.message.split("\n")[0].slice(0, 300);
       console.log(`erro raio-X ${p.chave}: ${msg}`);

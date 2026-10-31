@@ -56,6 +56,11 @@ const QUIZ = /inlead\.|typeform\.com|heyflow\.|xquiz|quiz\.|\/quiz|question \d+ 
 const BUMP = /order bump|yes,? (?:i want to )?add|yes!? add|add (?:this )?to (?:my )?order|one[- ]time offer|sim,? (?:eu )?quero (?:adicionar|levar|incluir)|adicionar ao (?:meu )?pedido|oferta [úu]nica|levar junto/i;
 const GARANTIA = /(\d{1,3})[- ]?(?:day|dias?)\s+(?:100% )?(?:money[- ]back |unconditional |incondicional )?(?:guarantee|garantia)|garantia (?:incondicional |total )?de (\d{1,3}) dias|(\d{1,3})[- ]day (?:refund|risk[- ]free)/i;
 
+// Loja de produto físico (advertorial de sapato, suplemento, gadget): carrinho, frete e
+// estoque, sem nenhum sinal de entrega digital.
+const FISICO = /add to cart|adicionar ao carrinho|free shipping|frete gr[aá]tis|calcular frete|ships (?:in|within|from|free)|shipping (?:&|and) returns|in stock|em estoque|out of stock|sold out|esgotado|tracking number|c[oó]digo de rastreio/i;
+const DIGITAL = /instant (?:access|download)|acesso (?:imediato|vital[ií]cio)|digital (?:download|product|access)|produto digital|e-?book|pdf|printable|online (?:course|program)|curso online|members? area|[áa]rea de membros|receba no (?:seu )?e-?mail|delivered (?:by|via|to your) e-?mail/i;
+
 // Câmbio aproximado só para o filtro "até US$ X" comparar moedas; a tela mostra o preço original.
 const PARA_USD = { USD: 1, BRL: 0.18, EUR: 1.08, GBP: 1.27, CAD: 0.73, AUD: 0.66, MXN: 0.055 };
 
@@ -117,6 +122,7 @@ export function analisar({ html = "", texto = "", visivel = "", links = [], host
     formato,
     order_bump: BUMP.test(texto),
     garantia_dias: g ? Number(g) : null,
+    fisico: FISICO.test(texto) && !DIGITAL.test(texto),
     idioma: String(lang || "").slice(0, 10) || null,
   };
 }
@@ -174,7 +180,7 @@ export async function raioX(browser, url) {
           const c = await lerPagina(context, alvo);
           const rc = analisar(c);
           checkoutLido = c.url_final;
-          r = { ...r, preco: rc.preco, moeda: rc.moeda, preco_usd: rc.preco_usd, precos: rc.precos, order_bump: r.order_bump || rc.order_bump,
+          r = { ...r, preco: rc.preco, moeda: rc.moeda, preco_usd: rc.preco_usd, precos: rc.precos, order_bump: r.order_bump || rc.order_bump, fisico: r.fisico || rc.fisico,
             checkout: [...new Set([...(r.checkout || "").split(", "), ...(rc.checkout || "").split(", ")].filter(Boolean))].join(", ") };
         } catch { /* checkout não abriu: fica o que a página deu */ }
       }
