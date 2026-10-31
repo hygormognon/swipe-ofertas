@@ -1,3 +1,5 @@
 node_modules/
 *.json.tmp
 teste-*.json
+.env.local
+logs/

@@ -9,7 +9,8 @@
 //   node coletar.mjs --teste "termo" [--pais US] [--max 50] [--saida x.json]
 //                                       coleta um termo e grava em arquivo, sem a API
 //
-// Ambiente: SWIPE_API (URL da função) e COLETOR_KEY (swipe_config.coletor_key).
+// Ambiente: SWIPE_API (URL da função), COLETOR_KEY (swipe_config.coletor_key) e
+// COLETOR_HORAS (idade mínima da última coleta para uma busca ficar devida; padrão 16).
 
 import fs from "node:fs";
 
@@ -225,7 +226,7 @@ async function abrirNavegador() {
 
 async function main() {
   if (flag("--checar", false)) {
-    const { buscas } = await api("coletor_buscas");
+    const { buscas } = await api("coletor_buscas", { horas: Number(process.env.COLETOR_HORAS) || 16 });
     console.log(`devidas=${buscas.length}`);
     if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `devidas=${buscas.length}\n`);
     return;
@@ -249,7 +250,7 @@ async function main() {
   }
 
   if (!KEY) throw new Error("COLETOR_KEY não definida");
-  const { buscas, max_ads } = await api("coletor_buscas");
+  const { buscas, max_ads } = await api("coletor_buscas", { horas: Number(process.env.COLETOR_HORAS) || 16 });
   console.log(`${buscas.length} busca(s) devida(s), ${max_ads} anúncios cada`);
   if (!buscas.length) return;
   const browser = await abrirNavegador();

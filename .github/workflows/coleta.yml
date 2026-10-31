@@ -1,5 +1,5 @@
 # Robô de coleta: de hora em hora pergunta à API se há busca devida (sem coleta nas
-# últimas 20 horas, ou pedida pela tela). Só instala o navegador quando há trabalho.
+# últimas 30 horas, ou pedida pela tela). Só instala o navegador quando há trabalho.
 name: Coleta do swipe
 
 on:
@@ -20,6 +20,9 @@ jobs:
         working-directory: coletor
     env:
       COLETOR_KEY: ${{ secrets.COLETOR_KEY }}
+      # A Meta corta a paginação para IP de servidor (só vêm ~30 anúncios por busca), então
+      # o GitHub só cobre buscas paradas há 30 horas; a coleta completa roda no PC.
+      COLETOR_HORAS: "30"
       COLETOR_DIAG: "1"
     steps:
       - uses: actions/checkout@v4

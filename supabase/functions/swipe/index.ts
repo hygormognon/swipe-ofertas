@@ -185,15 +185,21 @@ async function gravarItens(lote: any[], busca: { tipo: string; termo: string; pa
 }
 
 // Buscas que o robô deve rodar agora: as pedidas pela tela (coleta na fila) e as
-// ativas sem coleta boa nas últimas 20 horas, pulando as que deram erro há menos de 3.
-async function buscasDevidas() {
+// ativas sem coleta boa nas últimas `horas`, pulando as que deram erro há menos de 3.
+// O robô do PC pede 16 horas e o do GitHub 30: o GitHub só cobre os dias em que o PC
+// não rodou, porque a Meta corta a paginação para IP de servidor.
+async function buscasDevidas(horas = 20) {
   const cfg = await config();
+  horas = Math.min(Math.max(horas, 4), 72);
   const [{ data: buscas }, { data: recentes }] = await Promise.all([
     SB.from("swipe_buscas").select("id,termo,tipo,pais,ativo").order("id"),
-    SB.from("swipe_coletas").select("busca_id,status,criado_em,processado_em").gte("criado_em", new Date(Date.now() - 20 * 3600_000).toISOString()),
+    SB.from("swipe_coletas").select("busca_id,status,criado_em,processado_em").gte("criado_em", new Date(Date.now() - Math.max(horas, 20) * 3600_000).toISOString()),
   ]);
   const pedidas = new Set((recentes ?? []).filter((c) => c.status === "fila").map((c) => c.busca_id));
-  const feitas = new Set((recentes ?? []).filter((c) => c.status === "processada").map((c) => c.busca_id));
+  const corte = Date.now() - horas * 3600_000;
+  const feitas = new Set(
+    (recentes ?? []).filter((c) => c.status === "processada" && new Date(c.processado_em ?? c.criado_em).getTime() >= corte).map((c) => c.busca_id),
+  );
   const comErro = new Set(
     (recentes ?? []).filter((c) => c.status === "erro" && Date.now() - new Date(c.processado_em ?? c.criado_em).getTime() < 3 * 3600_000).map((c) => c.busca_id),
   );
@@ -400,7 +406,7 @@ async function rotear(acao: string, b: any, via: "senha" | "cron" | "coletor") {
   if (via !== "senha" && !PERMITIDAS[via].includes(acao)) throw new Error(`ação não permitida para ${via}`);
   switch (acao) {
     case "coletor_buscas":
-      return await buscasDevidas();
+      return await buscasDevidas(Number(b.horas) || 20);
     case "ingerir":
       return await ingerirDoRobo(b);
     case "ping":
