@@ -3,12 +3,13 @@
 import { chromium } from "../coletor/node_modules/playwright/index.mjs";
 const html = new URL("../index.html", import.meta.url).href;
 const chamadas = [];
-const oferta = (i, extra = {}) => ({ chave: `oferta${i}.com`, dominio: `oferta${i}.com`, tipo: "info", fase: "escalada", score: 20 - i, dias_no_ar: 100, anuncios_ativos: 5, variacoes: 9, paginas: 2, novos_7d: 1, tendencia: "nova", paises: ["US"], buscas: ["instant access"], titulo_exemplo: "Titulo " + i, texto_exemplo: "texto", imagem_exemplo: null, biblioteca: [], paginas_nomes: ["Pag"], marca: "", formatos: { VIDEO: 2 }, link_exemplo: `https://oferta${i}.com/vsl`, ...extra });
+const oferta = (i, extra = {}) => ({ chave: `oferta${i}.com`, dominio: `oferta${i}.com`, tipo: "info", fase: "escalada", score: 20 - i, dias_no_ar: 100, anuncios_ativos: 5, variacoes: 9, paginas: 2, novos_7d: 1, tendencia: "nova", paises: ["US"], buscas: ["instant access"], titulo_exemplo: "Titulo " + i, texto_exemplo: "texto", imagem_exemplo: null, biblioteca: [], paginas_nomes: ["Pag"], marca: "", formatos: { VIDEO: 2 }, link_exemplo: `https://oferta${i}.com/vsl`, em_alta: 9 - i, novos_3d: 1, topo: 2, ...extra });
+const comRaioX = { raiox_em: new Date().toISOString(), preco: 17, moeda: "USD", preco_usd: 17, precos: [17, 97], checkout: "digistore24", formato_pagina: "vsl", player: "vturb", order_bump: true, garantia_dias: 60, titulo_pagina: "Pagina" };
 const respostas = {
   ping: { ok: true, ia: false },
   resumo: { fases: { escalada: 3 }, anuncios: 10, novas_hoje: 1, ultima_coleta: new Date().toISOString(), na_fila: 0, custo_30d: 0, config: { fonte: "robo", ativo: true, max_ads: 100 }, ia: false },
   buscas: { buscas: [{ id: 1, termo: "instant access", tipo: "termo", pais: "US", ativo: true, nicho: "CTA" }, { id: 2, termo: "ebook", tipo: "termo", pais: "BR", ativo: true }], coletas: [{ busca_id: 1, status: "processada", anuncios: 100, criado_em: new Date().toISOString() }] },
-  oferta: { oferta: oferta(1), anuncios: [{ id: "9", pagina: "Pag", ativo: true, inicio: "2026-08-01", variacoes: 3, titulo: "T", texto: "X", video: "https://video.xx.fbcdn.net/v.mp4", imagem: null, url_biblioteca: "https://facebook.com/ads/library/?id=9", link: "https://oferta1.com" }], hist: [] },
+  oferta: { oferta: oferta(1, comRaioX), anuncios: [{ id: "9", pagina_id: "123456", pagina: "Pag", ativo: true, inicio: "2026-08-01", variacoes: 3, titulo: "T", texto: "X", video: "https://video.xx.fbcdn.net/v.mp4", imagem: null, url_biblioteca: "https://facebook.com/ads/library/?id=9", link: "https://oferta1.com" }], hist: [] },
   coletas: { coletas: [] },
 };
 const browser = await chromium.launch();
@@ -26,7 +27,7 @@ await page.route("**/functions/v1/swipe", async (route) => {
   if (corpo.acao === "coletar") r = { enfileiradas: 1, fonte: "robo" };
   if (corpo.acao === "config_salvar") r = { ok: true, config: { fonte: "robo", ativo: false, max_ads: 80, max_paralelo: 3, janela_dias: 3 } };
   if (corpo.acao === "coletas") r = { coletas: [{ criado_em: new Date().toISOString(), termo: "x", tipo: "termo", pais: "US", status: "erro", erro: "falhou" }] };
-  if (corpo.acao === "ofertas") r = { ofertas: corpo.filtros?.busca ? [oferta(7)] : [oferta(1), oferta(2)], total: corpo.filtros?.busca ? 1 : 2 };
+  if (corpo.acao === "ofertas") r = { ofertas: corpo.filtros?.busca ? [oferta(7)] : [oferta(1, comRaioX), oferta(2)], total: corpo.filtros?.busca ? 1 : 2 };
   await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(r) });
 });
 await page.goto(html);
@@ -35,12 +36,33 @@ await page.click("#form-login button");
 await page.waitForTimeout(800);
 const passo = async (nome, fn) => { try { await fn(); console.log("ok  ", nome); } catch (e) { console.log("FALHA", nome, "-", e.message.split("\n")[0]); } };
 await passo("lista de ofertas aparece", async () => { await page.waitForSelector("tr.oferta", { timeout: 3000 }); });
+await passo("visão em alta acesa e preço na lista", async () => {
+  if (!(await page.isVisible('.visao.on[data-visao="alta"]'))) throw new Error("visão padrão não acesa");
+  const pag = await page.textContent("tr.oferta .pag");
+  if (!pag.includes("US$ 17") || !pag.includes("digistore24")) throw new Error(pag);
+  if (!chamadas[chamadas.length - 1].includes('"ordem":"em_alta"')) throw new Error("não ordenou por em alta");
+});
+await passo("visão low ticket manda preço e checkout", async () => {
+  await page.click('.visao[data-visao="low"]'); await page.waitForTimeout(400);
+  const ult = chamadas[chamadas.length - 1];
+  if (!ult.includes('"preco_max":50') || !ult.includes('"com_checkout":true')) throw new Error(ult);
+  if (!(await page.isVisible('.visao.on[data-visao="low"]'))) throw new Error("visão low não acesa");
+  await page.click('.visao[data-visao="alta"]'); await page.waitForTimeout(400);
+});
 await passo("abre painel da oferta", async () => { await page.click("tr.oferta"); await page.waitForSelector("#painel:not(.esconde) h2", { timeout: 3000 }); });
 await passo("player de video no painel", async () => { await page.waitForSelector("#painel video", { timeout: 2000 }); });
 await passo("botão da página de vendas no anúncio", async () => {
   const href = await page.$eval("#painel .anuncio .btn-pagina", (a) => a.href);
   const texto = await page.textContent("#painel .anuncio .btn-pagina");
   if (href !== "https://oferta1.com/" || !texto.includes("página de vendas") || !texto.includes("oferta1.com")) throw new Error(`${href} | ${texto}`);
+});
+await passo("raio-X no painel", async () => {
+  const t = await page.textContent("#painel");
+  if (!t.includes("Raio-X") || !t.includes("US$ 17") || !t.includes("garantia de 60 dias") || !t.includes("order bump")) throw new Error("raio-X incompleto");
+});
+await passo("vigiar anunciante", async () => {
+  await page.click("[data-vigiar]"); await page.waitForTimeout(400);
+  if (!chamadas.some((c) => c.startsWith("vigiar"))) throw new Error("não chamou vigiar");
 });
 await passo("fecha painel", async () => { await page.click("#painel .fechar"); await page.waitForSelector("#painel.esconde", { state: "attached", timeout: 2000 }); });
 await passo("link da página na lista não abre o painel", async () => {

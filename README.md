@@ -10,4 +10,8 @@ Painel das ofertas mais escaladas da Biblioteca de Anúncios da Meta, com a mesm
 
 Nenhum dado nem senha fica neste repositório: ele só tem o código. O secret `COLETOR_KEY` do Actions guarda a chave do robô.
 
+- **Em alta:** além do score (que premia tempo no ar), cada oferta tem a nota `em_alta`: anúncios novos em 7 e 3 dias, anúncios entre os 20 primeiros da busca (a Biblioteca ordena por impressões), crescimento de ativos e páginas. O robô guarda a posição de cada anúncio na busca e, no PC, faz uma 2ª passada pelos anúncios mais recentes (radar).
+- **Raio-X da página:** `coletor/raiox.mjs`. No PC, depois da coleta, o robô abre a página de vendas das 40 ofertas mais em alta sem leitura e grava preço, checkout, formato (VSL, quiz, TSL), player, order bump e garantia em `swipe_paginas`. Teste: `node coletar.mjs --raiox-teste URL`.
+- **Vigiar anunciante:** botão no painel da oferta; vira uma busca do tipo página.
+
 Teste local do robô: `cd coletor && npm ci && node coletar.mjs --teste "instant access" --max 30`.

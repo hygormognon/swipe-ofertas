@@ -1,8 +1,9 @@
 // API do swipe de ofertas. Uma função só, roteada pelo campo `acao` do corpo.
 // - A tela manda `x-senha` (secret SWIPE_SENHA).
 // - O pg_cron manda `x-cron` (swipe_config.cron_key), para `coletar` e `processar`.
-// - O robô do GitHub Actions manda `x-coletor` (swipe_config.coletor_key), para
-//   `coletor_buscas`, `ingerir` e `recalcular`.
+// - O robô (PC ou GitHub Actions) manda `x-coletor` (swipe_config.coletor_key), para
+//   `coletor_buscas`, `ingerir`, `recalcular` e o raio-X das páginas de vendas
+//   (`raiox_pendentes`, `raiox_gravar`).
 // Duas fontes de coleta, escolhidas em swipe_config.coleta.fonte:
 // - "robo" (padrão): o robô roda de hora em hora, pede as buscas devidas, raspa a
 //   Biblioteca e manda os anúncios pelo `ingerir`. O cron do banco não faz nada.
@@ -136,6 +137,8 @@ function normalizar(it: any, busca: string, pais: string) {
     tipo: classificar(texto, titulo, cta, link, dom),
     buscas: busca ? [busca] : [],
     paises: pais ? [pais] : [],
+    // Posição na busca padrão (ordem de impressões); só o robô manda.
+    posicao: Number.isInteger(it.posicao) && it.posicao > 0 ? it.posicao : null,
   };
   return Object.fromEntries(Object.entries(linha).map(([k, v]) => [k, limpo(v)])) as typeof linha;
 }
@@ -337,7 +340,7 @@ async function baixar(b: any) {
 
 // ---- Consultas da tela ----
 
-const ORDENS = new Set(["score", "dias_no_ar", "variacoes", "anuncios_ativos", "novos_7d", "paginas", "delta_ativos", "primeira_vez"]);
+const ORDENS = new Set(["em_alta", "score", "dias_no_ar", "variacoes", "anuncios_ativos", "novos_7d", "paginas", "delta_ativos", "primeira_vez", "topo", "preco_usd"]);
 
 // deno-lint-ignore no-explicit-any
 async function ofertas(f: any) {
@@ -352,10 +355,15 @@ async function ofertas(f: any) {
   if (f.marca && f.marca !== "todas") q = q.eq("marca", f.marca === "sem" ? "" : f.marca);
   else if (!f.marca) q = q.neq("marca", "descartada");
   if (f.novas_dias) q = q.gte("primeira_vez", new Date(Date.now() - Number(f.novas_dias) * 86400_000).toISOString().slice(0, 10));
+  // Raio-X da página: preço convertido para dólar, checkout e formato.
+  if (f.preco_max) q = q.lte("preco_usd", Number(f.preco_max));
+  if (f.com_checkout) q = q.not("checkout", "is", null);
+  if (f.formato_pagina) q = q.ilike("formato_pagina", `${String(f.formato_pagina).replace(/[%_*,()]/g, "")}%`);
   const t = String(f.texto ?? "").replace(/[,()*%\\]/g, " ").trim();
-  if (t) q = q.or(`dominio.ilike.*${t}*,titulo_exemplo.ilike.*${t}*,texto_exemplo.ilike.*${t}*`);
+  if (t) q = q.or(`dominio.ilike.*${t}*,titulo_exemplo.ilike.*${t}*,texto_exemplo.ilike.*${t}*,titulo_pagina.ilike.*${t}*`);
   const ordem = ORDENS.has(f.ordem) ? f.ordem : "score";
-  q = q.order(ordem, { ascending: false, nullsFirst: false });
+  // Preço em ordem crescente (o mais barato primeiro); o resto, do maior para o menor.
+  q = q.order(ordem, { ascending: ordem === "preco_usd", nullsFirst: false });
   if (ordem !== "score") q = q.order("score", { ascending: false });
   const limite = Math.min(Number(f.limite) || 100, 300);
   const inicio = Number(f.offset) || 0;
@@ -368,7 +376,7 @@ async function oferta(chave: string) {
   const [o, ads, hist] = await Promise.all([
     SB.from("swipe_ofertas_v").select("*").eq("chave", chave).single(),
     SB.from("swipe_anuncios").select("*").eq("chave", chave).order("ativo", { ascending: false }).order("variacoes", { ascending: false }).limit(80),
-    SB.from("swipe_ofertas_hist").select("dia,score,anuncios_ativos,variacoes,paginas,fase").eq("chave", chave).order("dia").limit(120),
+    SB.from("swipe_ofertas_hist").select("dia,score,em_alta,anuncios_ativos,variacoes,paginas,fase").eq("chave", chave).order("dia").limit(120),
   ]);
   if (o.error) throw o.error;
   return { oferta: o.data, anuncios: ads.data ?? [], hist: hist.data ?? [] };
@@ -398,9 +406,64 @@ const depsIA = {
   },
 };
 
+// ---- Raio-X da página de vendas (lido pelo robô do PC) ----
+
+const txt = (v: unknown, n: number) => (typeof v === "string" && v ? String(limpo(v.slice(0, n))) : null);
+const numOuNulo = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+// deno-lint-ignore no-explicit-any
+async function raioxGravar(b: any) {
+  const chave = String(b.chave ?? "");
+  if (!chave) throw new Error("chave vazia");
+  const linha = {
+    chave,
+    url: txt(b.url, 1000),
+    url_final: txt(b.url_final, 1000),
+    status_http: numOuNulo(b.status_http),
+    titulo: txt(b.titulo, 200),
+    preco: numOuNulo(b.preco),
+    moeda: txt(b.moeda, 5),
+    preco_usd: numOuNulo(b.preco_usd),
+    precos: Array.isArray(b.precos) ? b.precos.filter((x: unknown) => typeof x === "number").slice(0, 12) : null,
+    checkout: txt(b.checkout, 200),
+    checkout_lido: txt(b.checkout_lido, 1000),
+    player: txt(b.player, 100),
+    formato: txt(b.formato, 30),
+    order_bump: typeof b.order_bump === "boolean" ? b.order_bump : null,
+    garantia_dias: Number.isInteger(b.garantia_dias) ? b.garantia_dias : null,
+    idioma: txt(b.idioma, 10),
+    erro: txt(b.erro, 300),
+    lido_em: new Date().toISOString(),
+  };
+  const { error } = await SB.from("swipe_paginas").upsert(linha);
+  if (error) throw error;
+  return { ok: true };
+}
+
+// "Vigiar" um anunciante: vira uma busca do tipo página, que o robô coleta todo dia,
+// e já entra na fila.
+// deno-lint-ignore no-explicit-any
+async function vigiar(b: any) {
+  const id = String(b.pagina_id ?? "").match(/^\d{5,}$/)?.[0];
+  if (!id) throw new Error("ID da página inválido");
+  const pais = String(b.pais || "US").toUpperCase().slice(0, 3);
+  const { data: existente } = await SB.from("swipe_buscas").select("id,ativo").eq("tipo", "pagina").eq("termo", id).eq("pais", pais).maybeSingle();
+  let buscaId = existente?.id;
+  if (!buscaId) {
+    const nicho = `vigiada: ${String(b.nome ?? "").slice(0, 60)}`.trim();
+    const { data, error } = await SB.from("swipe_buscas").insert({ termo: id, tipo: "pagina", pais, nicho, ativo: true }).select("id").single();
+    if (error) throw error;
+    buscaId = data.id;
+  } else if (!existente.ativo) {
+    await SB.from("swipe_buscas").update({ ativo: true }).eq("id", buscaId);
+  }
+  const enfileiradas = await enfileirar([buscaId]);
+  return { ok: true, id: buscaId, ja_existia: Boolean(existente), enfileiradas };
+}
+
 const PERMITIDAS: Record<string, string[]> = {
   cron: ["coletar", "processar"],
-  coletor: ["coletor_buscas", "ingerir", "recalcular"],
+  coletor: ["coletor_buscas", "ingerir", "recalcular", "raiox_pendentes", "raiox_gravar"],
 };
 
 // deno-lint-ignore no-explicit-any
@@ -411,6 +474,15 @@ async function rotear(acao: string, b: any, via: "senha" | "cron" | "coletor") {
       return await buscasDevidas(Number(b.horas) || 20);
     case "ingerir":
       return await ingerirDoRobo(b);
+    case "raiox_pendentes": {
+      const { data, error } = await SB.rpc("swipe_raiox_pendentes", { n: Number(b.n) || 40 });
+      if (error) throw error;
+      return { paginas: data ?? [] };
+    }
+    case "raiox_gravar":
+      return await raioxGravar(b);
+    case "vigiar":
+      return await vigiar(b);
     case "ping":
       return { ok: true, apify: Boolean(APIFY_TOKEN), ia: Boolean(Deno.env.get("ANTHROPIC_API_KEY")) };
     case "perguntar":

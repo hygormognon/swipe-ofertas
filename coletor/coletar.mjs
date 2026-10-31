@@ -6,13 +6,18 @@
 // Uso:
 //   node coletar.mjs                    pega as buscas devidas na API, coleta e grava
 //   node coletar.mjs --checar           só imprime quantas buscas estão devidas (sem navegador)
-//   node coletar.mjs --teste "termo" [--pais US] [--max 50] [--saida x.json]
+//   node coletar.mjs --teste "termo" [--pais US] [--max 50] [--novos] [--saida x.json]
 //                                       coleta um termo e grava em arquivo, sem a API
+//   node coletar.mjs --raiox            só o raio-X das páginas de vendas pendentes
+//   node coletar.mjs --raiox-teste URL  raio-X de uma página, sem a API
 //
-// Ambiente: SWIPE_API (URL da função), COLETOR_KEY (swipe_config.coletor_key) e
-// COLETOR_HORAS (idade mínima da última coleta para uma busca ficar devida; padrão 16).
+// Ambiente: SWIPE_API (URL da função), COLETOR_KEY (swipe_config.coletor_key),
+// COLETOR_HORAS (idade mínima da última coleta para uma busca ficar devida; padrão 16),
+// RADAR_MAX (anúncios da 2ª passada, a dos mais recentes; padrão 40 no PC, 0 no GitHub) e
+// RAIOX_MAX (páginas de vendas lidas por rodada; padrão 40 no PC, 0 no GitHub).
 
 import fs from "node:fs";
+import { raioX } from "./raiox.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n, d) => {
@@ -23,6 +28,10 @@ const API = process.env.SWIPE_API || "https://zdpiertlotdpxdufsjhr.supabase.co/f
 const KEY = process.env.COLETOR_KEY || "";
 const BASE = "https://www.facebook.com/ads/library/";
 const ORIGEM = process.env.GITHUB_ACTIONS ? "github" : "pc";
+// No GitHub a Meta corta a paginação e os cloakers mostram página branca para IP de
+// servidor: radar e raio-X só valem a pena no PC.
+const RADAR_MAX = Number(process.env.RADAR_MAX ?? (ORIGEM === "pc" ? 40 : 0));
+const RAIOX_MAX = Number(process.env.RAIOX_MAX ?? (ORIGEM === "pc" ? 40 : 0));
 
 const espera = (min, max) => new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
 
@@ -37,7 +46,9 @@ async function api(acao, dados = {}) {
   return corpo;
 }
 
-function urlDaBusca(b) {
+// modo "novos": a ordenação da Biblioteca que traz os anúncios mais recentes primeiro
+// (o padrão da busca é a ordem por impressões).
+function urlDaBusca(b, modo = "padrao") {
   if (b.tipo === "url") return b.termo;
   const u = new URL(BASE);
   u.searchParams.set("active_status", "active");
@@ -53,6 +64,10 @@ function urlDaBusca(b) {
   }
   u.searchParams.set("q", b.termo);
   u.searchParams.set("search_type", "keyword_unordered");
+  if (modo === "novos") {
+    u.searchParams.set("sort_data[direction]", "desc");
+    u.searchParams.set("sort_data[mode]", "relevancy_monthly_grouped");
+  }
   return u.toString();
 }
 
@@ -149,7 +164,7 @@ async function aceitarCookies(page) {
   }
 }
 
-async function coletar(browser, busca, max) {
+async function coletar(browser, busca, max, modo = "padrao") {
   const context = await browser.newContext({
     locale: "en-US",
     viewport: { width: 1366, height: 900 },
@@ -190,7 +205,7 @@ async function coletar(browser, busca, max) {
   });
 
   try {
-    await page.goto(urlDaBusca(busca), { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.goto(urlDaBusca(busca, modo), { waitUntil: "domcontentloaded", timeout: 45000 });
     await espera(3500, 5000);
     await aceitarCookies(page);
     if (html) somar(extrairDoHtml(html));
@@ -217,7 +232,49 @@ async function coletar(browser, busca, max) {
     await context.close().catch(() => {});
   }
   if (!vistos.size && bloqueado) throw new Error("a Meta bloqueou o acesso (429/403)");
-  return [...vistos.values()].slice(0, max);
+  // A busca padrão vem na ordem de impressões: a posição do anúncio é o sinal de verba
+  // que existe fora da UE. Na passada dos mais recentes a ordem é outra e não conta.
+  const lista = [...vistos.values()].slice(0, max);
+  if (modo === "padrao" && busca.tipo === "termo") lista.forEach((a, i) => (a.posicao = i + 1));
+  return lista;
+}
+
+// Coleta padrão + passada dos mais recentes, juntas num lote só (sem repetir anúncio).
+async function coletarBusca(browser, b, max) {
+  const itens = await coletar(browser, b, max);
+  if (!RADAR_MAX || b.tipo !== "termo") return { itens, novos: 0 };
+  await espera(3000, 6000);
+  const ids = new Set(itens.map((a) => a.adArchiveId));
+  let novos = 0;
+  try {
+    for (const a of await coletar(browser, b, RADAR_MAX, "novos")) {
+      if (ids.has(a.adArchiveId)) continue;
+      ids.add(a.adArchiveId);
+      itens.push(a);
+      novos++;
+    }
+  } catch (e) {
+    console.log(`   radar falhou: ${e.message}`);
+  }
+  return { itens, novos };
+}
+
+async function rodarRaioX(browser) {
+  if (!RAIOX_MAX) return;
+  const { paginas } = await api("raiox_pendentes", { n: RAIOX_MAX });
+  console.log(`raio-X: ${paginas.length} página(s) de vendas`);
+  for (const p of paginas) {
+    const t0 = Date.now();
+    try {
+      const r = await raioX(browser, p.link);
+      await api("raiox_gravar", { chave: p.chave, url: p.link, ...r });
+      console.log(`ok  raio-X ${p.chave}: ${r.preco != null ? `${r.moeda} ${r.preco}` : "sem preço"} · ${r.checkout || "sem checkout"} · ${r.formato} em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    } catch (e) {
+      const msg = e.message.split("\n")[0].slice(0, 300);
+      console.log(`erro raio-X ${p.chave}: ${msg}`);
+      await api("raiox_gravar", { chave: p.chave, url: p.link, erro: msg }).catch(() => {});
+    }
+  }
 }
 
 async function abrirNavegador() {
@@ -233,15 +290,27 @@ async function main() {
     return;
   }
 
+  const urlTeste = flag("--raiox-teste", null);
+  if (urlTeste) {
+    const browser = await abrirNavegador();
+    try {
+      console.log(JSON.stringify(await raioX(browser, urlTeste), null, 1));
+    } finally {
+      await browser.close();
+    }
+    return;
+  }
+
   const teste = flag("--teste", null);
   if (teste) {
     const browser = await abrirNavegador();
     try {
       const busca = { tipo: "termo", termo: teste, pais: flag("--pais", "US") };
       const t0 = Date.now();
-      const itens = await coletar(browser, busca, Number(flag("--max", 50)));
+      const itens = await coletar(browser, busca, Number(flag("--max", 50)), flag("--novos", false) ? "novos" : "padrao");
       console.log(`${itens.length} anúncios em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
-      for (const a of itens.slice(0, 5)) console.log(`- ${a.pageName} | ${a.linkUrl} | início ${a.startDate} | var ${a.collationCount} | ${String(a.title).slice(0, 60)}`);
+      const dia = (v) => (v ? new Date(typeof v === "number" ? v * 1000 : v).toISOString().slice(0, 10) : "?");
+      for (const a of itens.slice(0, 8)) console.log(`- ${a.pageName} | ${a.linkUrl} | início ${dia(a.startDate)} | var ${a.collationCount} | ${String(a.title).slice(0, 60)}`);
       const saida = flag("--saida", null);
       if (saida) fs.writeFileSync(saida, JSON.stringify(itens, null, 1));
     } finally {
@@ -251,31 +320,38 @@ async function main() {
   }
 
   if (!KEY) throw new Error("COLETOR_KEY não definida");
+  if (flag("--raiox", false)) {
+    const browser = await abrirNavegador();
+    try { await rodarRaioX(browser); } finally { await browser.close(); }
+    return;
+  }
   const { buscas, max_ads } = await api("coletor_buscas", { horas: Number(process.env.COLETOR_HORAS) || 16 });
-  console.log(`${buscas.length} busca(s) devida(s), ${max_ads} anúncios cada`);
-  if (!buscas.length) return;
+  console.log(`${buscas.length} busca(s) devida(s), ${max_ads} anúncios cada${RADAR_MAX ? ` + até ${RADAR_MAX} mais recentes` : ""}`);
+  if (!buscas.length && !RAIOX_MAX) return;
   const browser = await abrirNavegador();
   let gravadas = 0;
   try {
     for (const b of buscas) {
       const t0 = Date.now();
       try {
-        const itens = await coletar(browser, b, max_ads);
+        const { itens, novos } = await coletarBusca(browser, b, max_ads);
         const r = await api("ingerir", { busca_id: b.id, itens, origem: ORIGEM });
         gravadas++;
-        console.log(`ok  ${b.pais} "${b.termo}": ${itens.length} anúncios (${r.anuncios} gravados) em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+        console.log(`ok  ${b.pais} "${b.termo}": ${itens.length} anúncios${novos ? ` (${novos} do radar)` : ""}, ${r.anuncios} gravados em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
       } catch (e) {
         console.log(`erro ${b.pais} "${b.termo}": ${e.message}`);
         await api("ingerir", { busca_id: b.id, erro: e.message, origem: ORIGEM }).catch(() => {});
       }
       await espera(4000, 8000);
     }
-  } finally {
-    await browser.close();
     if (gravadas) {
       const r = await api("recalcular");
       console.log(`ranking recalculado: ${r.ofertas} ofertas`);
     }
+    // Depois do ranking, para o raio-X pegar as ofertas que acabaram de subir.
+    await rodarRaioX(browser).catch((e) => console.log(`raio-X parou: ${e.message}`));
+  } finally {
+    await browser.close();
   }
 }
 

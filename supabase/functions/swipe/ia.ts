@@ -8,7 +8,9 @@ const MODELO = "claude-opus-5-5";
 const SISTEMA = `Você é o analista do Swipe de Ofertas da Lamparina. O banco guarda anúncios ativos da Biblioteca de Anúncios da Meta (EUA e Brasil), coletados todo dia, agrupados por oferta (o domínio da página de destino; marketplaces, plataformas como Etsy e Gumroad e links de rede social são agrupados por página do anunciante) e ranqueados por sinais de escala.
 
 Como ler os números de uma oferta:
-- score: soma em escala logarítmica de dias no ar, variações do mesmo criativo, páginas diferentes rodando a oferta, anúncios ativos e anúncios novos nos últimos 7 dias. Serve para ordenar, não para decidir sozinho.
+- score: soma em escala logarítmica de dias no ar, variações do mesmo criativo, páginas diferentes rodando a oferta, anúncios ativos e anúncios novos nos últimos 7 dias. Premia o que é antigo e grande. Serve para ordenar, não para decidir sozinho.
+- em_alta: nota de momento. Pesa anúncios novos em 7 e 3 dias, anúncios entre os 20 primeiros da busca da Biblioteca (topo; a busca vem na ordem de impressões, então é o sinal de verba que existe fora da UE), crescimento de anúncios ativos, páginas e se a oferta tem até 60 dias. Para "o que está quente agora", ordene por em_alta.
+- raio-X da página (quando já foi lido): preco e moeda do front (o menor preço da página; confira em precos), preco_usd (convertido por câmbio aproximado), checkout (plataformas detectadas), formato_pagina (vsl, quiz, tsl, página), player, order_bump e garantia_dias. Sem raio-X, esses campos vêm vazios.
 - fase: teste (menos de 7 dias), validando (7 a 30 dias, ou mais sem sinal de escala), escalada (30+ dias e 10+ variações, 2+ páginas ou 3+ anúncios novos na semana), veterana (90+ dias sem os sinais de escala).
 - tendência: compara com a foto de cerca de 7 dias atrás (nova, crescendo, estável, caindo, sumiu).
 - tipo: info (infoproduto), x1 (WhatsApp), fisico, marketplace, app, outros.
@@ -41,14 +43,21 @@ const ofertaCurta = (o: any) => ({
   tipo: o.tipo,
   fase: o.fase,
   score: Number(o.score),
+  em_alta: o.em_alta != null ? Number(o.em_alta) : null,
   dias_no_ar: o.dias_no_ar,
   anuncios_ativos: o.anuncios_ativos,
   variacoes: o.variacoes,
   paginas: o.paginas,
   novos_7d: o.novos_7d,
+  novos_3d: o.novos_3d,
+  topo: o.topo,
   tendencia: o.tendencia,
   paises: o.paises,
   funil_pela_url: o.funil_pela_url,
+  preco: o.preco != null ? `${o.moeda} ${o.preco}` : undefined,
+  preco_usd: o.preco_usd ?? undefined,
+  checkout: o.checkout || undefined,
+  formato_pagina: o.formato_pagina || undefined,
   titulo: corta(o.titulo_exemplo, 120),
   marca: o.marca || undefined,
   nota: o.nota || undefined,
@@ -70,7 +79,11 @@ function ferramentas(d: Deps) {
           min_dias: { type: "integer", description: "Mínimo de dias no ar." },
           tendencia: { type: "string", enum: ["nova", "crescendo", "estável", "caindo", "sumiu"] },
           busca: { type: "string", description: "Termo de busca exato que achou a oferta (ex.: 'instant access')." },
-          ordem: { type: "string", enum: ["score", "dias_no_ar", "variacoes", "anuncios_ativos", "novos_7d", "paginas", "delta_ativos", "primeira_vez"], description: "Padrão: score." },
+          novas_dias: { type: "integer", description: "Só ofertas vistas pela primeira vez nos últimos N dias." },
+          preco_max: { type: "number", description: "Preço máximo do front em dólar (pelo raio-X; exclui as que não têm preço lido)." },
+          com_checkout: { type: "boolean", description: "Só ofertas cuja página tem checkout detectado." },
+          formato_pagina: { type: "string", enum: ["vsl", "quiz", "tsl", "página"] },
+          ordem: { type: "string", enum: ["em_alta", "score", "dias_no_ar", "variacoes", "anuncios_ativos", "novos_7d", "paginas", "delta_ativos", "primeira_vez", "topo", "preco_usd"], description: "Padrão: score. Para o que está quente agora, em_alta." },
           limite: { type: "integer", description: "De 1 a 40. Padrão 15." },
         },
         additionalProperties: false,
@@ -103,12 +116,17 @@ function ferramentas(d: Deps) {
             formatos: oferta.formatos,
             link_exemplo: oferta.link_exemplo,
             primeira_vez: oferta.primeira_vez,
+            raio_x: oferta.raiox_em ? {
+              lido_em: oferta.raiox_em, precos: oferta.precos, player: oferta.player, order_bump: oferta.order_bump,
+              garantia_dias: oferta.garantia_dias, titulo_pagina: oferta.titulo_pagina, erro: oferta.raiox_erro,
+            } : "página ainda não lida",
             historico: hist,
             anuncios: anuncios.slice(0, 15).map((a) => ({
               pagina: a.pagina,
               ativo: a.ativo,
               inicio: a.inicio,
               variacoes: a.variacoes,
+              posicao_na_busca: a.posicao ?? undefined,
               formato: a.formato,
               tem_video: Boolean(a.video),
               titulo: corta(a.titulo, 160),
