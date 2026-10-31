@@ -105,6 +105,7 @@ function converter(n) {
     containsAiMedia: Boolean(n.contains_digital_created_media),
     adLibraryUrl: `https://www.facebook.com/ads/library/?id=${n.ad_archive_id}`,
     imageUrls: imagem ? [imagem] : [],
+    videoUrls: [s.videos?.[0]?.video_hd_url || s.videos?.[0]?.video_sd_url || card.video_hd_url || card.video_sd_url].filter(Boolean),
     pageProfilePictureUrl: s.page_profile_picture_url ?? null,
   };
 }
@@ -156,6 +157,7 @@ async function coletar(browser, busca, max) {
   const vistos = new Map();
   let bloqueado = false;
   let html = "";
+  const diag = { graphql: 0, comAnuncios: 0, status: {} };
   const somar = (nos) => {
     for (const n of nos) if (!vistos.has(String(n.ad_archive_id))) vistos.set(String(n.ad_archive_id), converter(n));
   };
@@ -164,6 +166,7 @@ async function coletar(browser, busca, max) {
       const url = resp.url();
       const st = resp.status();
       if ((url.includes("ads/library") || url.includes("/api/graphql")) && (st === 429 || st === 403)) bloqueado = true;
+      if (url.includes("/api/graphql")) { diag.graphql++; diag.status[st] = (diag.status[st] || 0) + 1; }
       if (st !== 200) return;
       const metodo = resp.request().method();
       if (metodo === "GET" && url.includes("ads/library") && !html) {
@@ -171,7 +174,7 @@ async function coletar(browser, busca, max) {
         if (t.includes("ad_archive_id")) html = t;
       } else if (metodo === "POST" && url.includes("/api/graphql")) {
         const t = await resp.text().catch(() => "");
-        if (t.includes("ad_archive_id")) somar(extrairDoGraphql(t));
+        if (t.includes("ad_archive_id")) { diag.comAnuncios++; somar(extrairDoGraphql(t)); }
       }
     } catch { /* resposta já descartada */ }
   });
@@ -184,11 +187,21 @@ async function coletar(browser, busca, max) {
     let parado = 0;
     for (let i = 0; i < Math.ceil(max / 10) + 8 && vistos.size < max; i++) {
       const antes = vistos.size;
+      // Rola de dois jeitos: o scroll por script nem sempre dispara o carregamento
+      // infinito no headless; a roda do mouse gera os eventos que a página espera.
       await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })).catch(() => {});
+      await page.mouse.wheel(0, 2500).catch(() => {});
       await espera(2500, 4000);
       if (vistos.size === antes) {
         if (++parado >= 4) break;
       } else parado = 0;
+    }
+    if (process.env.COLETOR_DIAG) {
+      const pistas = await page.evaluate(() => {
+        const t = document.body?.innerText || "";
+        return { login: /log in|entrar|iniciar sesi/i.test(t.slice(-3000)), altura: document.body?.scrollHeight };
+      }).catch(() => ({}));
+      console.log(`   diag: ${JSON.stringify({ ...diag, ...pistas, html: Boolean(html), total: vistos.size })}`);
     }
   } finally {
     await context.close().catch(() => {});

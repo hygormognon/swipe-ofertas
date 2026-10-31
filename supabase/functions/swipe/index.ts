@@ -19,7 +19,7 @@ const ACTOR = "automation-lab~facebook-ads-library";
 const CAMPOS = [
   "adArchiveId", "pageId", "pageName", "pageLikeCount", "isActive", "startDate", "endDate",
   "collationCount", "collationId", "displayFormat", "linkUrl", "linkCaption", "title", "ctaText",
-  "bodyText", "containsAiMedia", "adLibraryUrl", "imageUrls", "videoPreviewUrls", "pageProfilePictureUrl",
+  "bodyText", "containsAiMedia", "adLibraryUrl", "imageUrls", "videoUrls", "videoPreviewUrls", "pageProfilePictureUrl",
 ].join(",");
 
 const CORS = {
@@ -128,6 +128,7 @@ function normalizar(it: any, busca: string, pais: string) {
     ia: Boolean(it.containsAiMedia),
     url_biblioteca: it.adLibraryUrl ?? `https://www.facebook.com/ads/library/?id=${id}`,
     imagem: it.imageUrls?.[0] ?? it.videoPreviewUrls?.[0] ?? null,
+    video: it.videoUrls?.[0] ?? null,
     pagina_foto: it.pageProfilePictureUrl ?? null,
     dominio: dom,
     chave,
@@ -293,6 +294,38 @@ async function processar() {
   return saida;
 }
 
+// ---- Download do criativo ----
+
+// Só mídia da própria Meta: o proxy não vira um baixador de qualquer URL.
+const MIDIA_OK = /(^|\.)fbcdn\.net$/;
+
+// deno-lint-ignore no-explicit-any
+async function baixar(b: any) {
+  const { data: a, error } = await SB.from("swipe_anuncios").select("id,pagina,video,imagem").eq("id", String(b.id)).single();
+  if (error) throw error;
+  const imagem = b.tipo === "imagem";
+  const url = imagem ? a.imagem : a.video;
+  if (!url) throw new Error(`esse anúncio não tem ${imagem ? "imagem" : "vídeo"} guardado`);
+  if (!MIDIA_OK.test(new URL(url).hostname)) throw new Error("link de mídia fora do fbcdn");
+  const r = await fetch(url);
+  if (!r.ok) {
+    throw new Error(r.status === 403 || r.status === 410
+      ? "o link da Meta venceu; ele é renovado na próxima coleta deste anúncio"
+      : `a Meta respondeu ${r.status}`);
+  }
+  const tipo = r.headers.get("content-type") ?? (imagem ? "image/jpeg" : "video/mp4");
+  const ext = /png/.test(tipo) ? "png" : /webp/.test(tipo) ? "webp" : /jpe?g/.test(tipo) ? "jpg" : "mp4";
+  const nome = `${String(a.pagina || "anuncio").normalize("NFD").replace(/[^\w-]+/g, "_").slice(0, 40)}_${a.id}.${ext}`;
+  return new Response(r.body, {
+    headers: {
+      ...CORS,
+      "Content-Type": tipo,
+      "Content-Disposition": `attachment; filename="${nome}"`,
+      "Access-Control-Expose-Headers": "Content-Disposition",
+    },
+  });
+}
+
 // ---- Consultas da tela ----
 
 const ORDENS = new Set(["score", "dias_no_ar", "variacoes", "anuncios_ativos", "novos_7d", "paginas", "delta_ativos", "primeira_vez"]);
@@ -446,6 +479,7 @@ Deno.serve(async (req) => {
   if (!via) return json({ erro: SENHA ? "senha incorreta" : "SWIPE_SENHA não configurada no Supabase" }, 401);
   try {
     const b = await req.json().catch(() => ({}));
+    if (b.acao === "baixar" && via === "senha") return await baixar(b);
     return json(await rotear(String(b.acao ?? ""), b, via));
   } catch (e) {
     return json({ erro: String((e as Error).message ?? e) }, 400);

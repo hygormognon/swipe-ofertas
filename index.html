@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
 <title>Swipe de Ofertas — Lamparina</title>
 <style>
   :root {
@@ -108,7 +109,10 @@
   .graf .leg { display: flex; gap: 14px; font-size: 12px; color: var(--fraco); margin-top: 6px; }
   .anuncios { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .anuncio { background: var(--s2); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
-  .anuncio img { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--s3); display: block; }
+  .anuncio img, .anuncio video { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--s3); display: block; }
+  .anuncio video { object-fit: contain; background: #000; }
+  .anuncio .midia-erro { aspect-ratio: 1; display: grid; place-items: center; text-align: center; padding: 16px; color: var(--fraco); font-size: 12px; background: var(--s3); }
+  .of .video-ic { color: var(--lar); font-size: 11px; margin-left: 6px; }
   .anuncio .corpo { padding: 10px; font-size: 12.5px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
   .anuncio .meta { color: var(--fraco); font-size: 12px; }
   .anuncio .txt { color: #cfcfcf; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
@@ -569,12 +573,15 @@ async function abrirOferta(chave) {
         <div class="anuncios">
           ${anuncios.map((a) => `
             <div class="anuncio">
-              ${urlSegura(a.imagem) ? `<img src="${urlSegura(a.imagem)}" loading="lazy" referrerpolicy="no-referrer" alt="" onerror="this.remove()">` : ""}
+              ${urlSegura(a.video)
+                ? `<video controls playsinline preload="none" src="${urlSegura(a.video)}" ${urlSegura(a.imagem) ? `poster="${urlSegura(a.imagem)}"` : ""}></video>`
+                : urlSegura(a.imagem) ? `<img src="${urlSegura(a.imagem)}" loading="lazy" referrerpolicy="no-referrer" alt="" onerror="this.remove()">` : ""}
               <div class="corpo">
                 <div class="meta">${esc(a.pagina)} · ${a.ativo === false ? "inativo" : "ativo"} · desde ${diaBR(a.inicio)} · ${num(a.variacoes)} var.</div>
                 ${a.titulo ? `<b>${esc(a.titulo)}</b>` : ""}
                 <div class="txt">${esc(a.texto)}</div>
                 <div class="rodape">
+                  ${a.video ? `<a href="#" data-baixar="${esc(a.id)}" data-tipo="video">Baixar vídeo</a>` : a.imagem ? `<a href="#" data-baixar="${esc(a.id)}" data-tipo="imagem">Baixar imagem</a>` : ""}
                   ${urlSegura(a.url_biblioteca) ? `<a href="${urlSegura(a.url_biblioteca)}" target="_blank" rel="noopener noreferrer">Biblioteca</a>` : ""}
                   ${urlSegura(a.link) ? `<a href="${urlSegura(a.link)}" target="_blank" rel="noopener noreferrer">Destino</a>` : ""}
                   ${a.cta ? `<span style="color:var(--fraco)">${esc(a.cta)}</span>` : ""}
@@ -584,7 +591,11 @@ async function abrirOferta(chave) {
         </div>
       </div>`;
 
-    $$("[data-marca]", painel).forEach((b) => b.addEventListener("click", async () => {
+    $("video", painel).forEach((v) => v.addEventListener("error", () => {
+      v.outerHTML = `<div class="midia-erro">O link do vídeo venceu. Ele é renovado na próxima coleta deste anúncio; enquanto isso, abra pela Biblioteca.</div>`;
+    }));
+    $("[data-baixar]", painel).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); baixarMidia(el); }));
+    $("[data-marca]", painel).forEach((b) => b.addEventListener("click", async () => {
       try {
         await api("marcar", { chave, status: b.dataset.marca, nota: $("#nota").value || null });
         toast("Marcação salva");
@@ -610,6 +621,34 @@ async function abrirOferta(chave) {
     });
   } catch (e) {
     painel.innerHTML = `<button class="fechar">Fechar</button><p class="dica">${esc(e.message)}</p>`;
+  }
+}
+async function baixarMidia(el) {
+  const rotulo = el.textContent;
+  el.textContent = "Baixando…";
+  try {
+    const r = await fetch(API, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-senha": senha },
+      body: JSON.stringify({ acao: "baixar", id: el.dataset.baixar, tipo: el.dataset.tipo }),
+    });
+    if (!r.ok || (r.headers.get("content-type") || "").includes("application/json")) {
+      const corpo = await r.json().catch(() => ({}));
+      throw new Error(corpo.erro || `HTTP ${r.status}`);
+    }
+    const nome = (r.headers.get("content-disposition") || "").match(/filename="([^"]+)"/)?.[1] || `criativo_${el.dataset.baixar}`;
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nome;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    el.textContent = rotulo;
   }
 }
 function fecharPainel() { $("#painel").classList.add("esconde"); $("#painel-fundo").classList.add("esconde"); }

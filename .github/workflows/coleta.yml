@@ -20,6 +20,7 @@ jobs:
         working-directory: coletor
     env:
       COLETOR_KEY: ${{ secrets.COLETOR_KEY }}
+      COLETOR_DIAG: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
