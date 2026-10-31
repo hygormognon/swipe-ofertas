@@ -4,7 +4,7 @@ import { chromium } from "../coletor/node_modules/playwright/index.mjs";
 const html = new URL("../index.html", import.meta.url).href;
 const chamadas = [];
 const oferta = (i, extra = {}) => ({ chave: `oferta${i}.com`, dominio: `oferta${i}.com`, tipo: "info", fase: "escalada", score: 20 - i, dias_no_ar: 100, anuncios_ativos: 5, variacoes: 9, paginas: 2, novos_7d: 1, tendencia: "nova", paises: ["US"], buscas: ["instant access"], titulo_exemplo: "Titulo " + i, texto_exemplo: "texto", imagem_exemplo: null, biblioteca: [], paginas_nomes: ["Pag"], marca: "", formatos: { VIDEO: 2 }, link_exemplo: `https://oferta${i}.com/vsl`, em_alta: 9 - i, novos_3d: 1, topo: 2, ...extra });
-const comRaioX = { raiox_em: new Date().toISOString(), preco: 17, moeda: "USD", preco_usd: 17, precos: [17, 97], checkout: "digistore24", formato_pagina: "vsl", player: "vturb", order_bump: true, garantia_dias: 60, titulo_pagina: "Pagina" };
+const comRaioX = { lt: "sim", lt_motivo: "preço e checkout na página · digistore24", lt_preco_usd: 17, lt_fonte: "pagina", raiox_em: new Date().toISOString(), preco: 17, moeda: "USD", preco_usd: 17, precos: [17, 97], checkout: "digistore24", formato_pagina: "vsl", player: "vturb", order_bump: true, garantia_dias: 60, titulo_pagina: "Pagina" };
 const respostas = {
   ping: { ok: true, ia: false },
   resumo: { fases: { escalada: 3 }, anuncios: 10, novas_hoje: 1, ultima_coleta: new Date().toISOString(), na_fila: 0, custo_30d: 0, config: { fonte: "robo", ativo: true, max_ads: 100 }, ia: false },
@@ -27,7 +27,7 @@ await page.route("**/functions/v1/swipe", async (route) => {
   if (corpo.acao === "coletar") r = { enfileiradas: 1, fonte: "robo" };
   if (corpo.acao === "config_salvar") r = { ok: true, config: { fonte: "robo", ativo: false, max_ads: 80, max_paralelo: 3, janela_dias: 3 } };
   if (corpo.acao === "coletas") r = { coletas: [{ criado_em: new Date().toISOString(), termo: "x", tipo: "termo", pais: "US", status: "erro", erro: "falhou" }] };
-  if (corpo.acao === "ofertas") r = { ofertas: corpo.filtros?.busca ? [oferta(7)] : [oferta(1, comRaioX), oferta(2, { dominio: "um-dominio-bem-comprido-de-oferta.com", titulo_exemplo: "Um título de anúncio bem longo que ocupa a coluna inteira da tabela e mais um pouco".repeat(2), checkout: "clickbank, digistore24", raiox_em: "2026-10-31", preco: 1297, moeda: "USD", formato_pagina: "vsl + texto" })], total: corpo.filtros?.busca ? 1 : 2 };
+  if (corpo.acao === "ofertas") r = { ofertas: corpo.filtros?.busca ? [oferta(7)] : [oferta(1, comRaioX), oferta(2, { dominio: "um-dominio-bem-comprido-de-oferta.com", titulo_exemplo: "Um título de anúncio bem longo que ocupa a coluna inteira da tabela e mais um pouco".repeat(2), checkout: "clickbank, digistore24", raiox_em: "2026-10-31", preco: 1297, moeda: "USD", formato_pagina: "vsl + texto" })], total: corpo.filtros?.busca ? 1 : 2, por_lt: corpo.filtros?.contar_lt ? { low: 2, conferir: 5, nao: 9 } : undefined };
   await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(r) });
 });
 await page.goto(html);
@@ -42,11 +42,27 @@ await passo("visão em alta acesa e preço na lista", async () => {
   if (!pag.includes("US$ 17") || !pag.includes("digistore24")) throw new Error(pag);
   if (!chamadas[chamadas.length - 1].includes('"ordem":"em_alta"')) throw new Error("não ordenou por em alta");
 });
-await passo("visão low ticket manda preço e checkout", async () => {
-  await page.click('.visao[data-visao="low"]'); await page.waitForTimeout(400);
-  const ult = chamadas[chamadas.length - 1];
-  if (!ult.includes('"preco_max":50') || !ult.includes('"com_checkout":true')) throw new Error(ult);
-  if (!(await page.isVisible('.visao.on[data-visao="low"]'))) throw new Error("visão low não acesa");
+await passo("aba low ticket é o padrão, com contagens e veredito na linha", async () => {
+  if (!chamadas[chamadas.length - 1].includes('"lowticket":"low"')) throw new Error("não filtrou low ticket");
+  const abas = await page.textContent("#lt-abas");
+  if (!abas.includes("2") || !abas.includes("5") || !abas.includes("9")) throw new Error(abas);
+  const lt = await page.textContent("tr.oferta .ltm");
+  if (!lt.includes("US$ 17") || !lt.includes("digistore24")) throw new Error(lt);
+});
+await passo("abas não interessa, tudo e volta", async () => {
+  await page.click('.lt-aba[data-lt="nao"]'); await page.waitForTimeout(400);
+  if (!chamadas[chamadas.length - 1].includes('"lowticket":"nao"')) throw new Error(chamadas[chamadas.length - 1]);
+  if (await page.isVisible("#f-ltconf")) throw new Error("seletor de confirmadas visível fora do low ticket");
+  await page.click('.lt-aba[data-lt="todos"]'); await page.waitForTimeout(400);
+  if (!chamadas[chamadas.length - 1].includes('"lowticket":""')) throw new Error(chamadas[chamadas.length - 1]);
+  await page.click('.lt-aba[data-lt="low"]'); await page.selectOption("#f-ltconf", "sim"); await page.waitForTimeout(400);
+  if (!chamadas[chamadas.length - 1].includes('"lowticket":"sim"')) throw new Error(chamadas[chamadas.length - 1]);
+  await page.selectOption("#f-ltconf", ""); await page.waitForTimeout(400);
+});
+await passo("visão mais baratas ordena por preço", async () => {
+  await page.click('.visao[data-visao="baratas"]'); await page.waitForTimeout(400);
+  if (!chamadas[chamadas.length - 1].includes('"ordem":"preco_usd"')) throw new Error(chamadas[chamadas.length - 1]);
+  if (!(await page.isVisible('.visao.on[data-visao="baratas"]'))) throw new Error("visão não acesa");
   await page.click('.visao[data-visao="alta"]'); await page.waitForTimeout(400);
 });
 await passo("abre painel da oferta", async () => { await page.click("tr.oferta"); await page.waitForSelector("#painel:not(.esconde) h2", { timeout: 3000 }); });
@@ -59,6 +75,11 @@ await passo("botão da página de vendas no anúncio", async () => {
 await passo("raio-X no painel", async () => {
   const t = await page.textContent("#painel");
   if (!t.includes("Raio-X") || !t.includes("US$ 17") || !t.includes("garantia de 60 dias") || !t.includes("order bump")) throw new Error("raio-X incompleto");
+});
+await passo("corrigir veredito no painel", async () => {
+  await page.click('#painel [data-lt="nao"]'); await page.waitForTimeout(500);
+  const c = chamadas.filter((x) => x.startsWith("marcar"));
+  if (!c.length) throw new Error("não chamou marcar");
 });
 await passo("vigiar anunciante", async () => {
   await page.click("[data-vigiar]"); await page.waitForTimeout(400);

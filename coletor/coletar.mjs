@@ -14,7 +14,7 @@
 // Ambiente: SWIPE_API (URL da função), COLETOR_KEY (swipe_config.coletor_key),
 // COLETOR_HORAS (idade mínima da última coleta para uma busca ficar devida; padrão 16),
 // RADAR_MAX (anúncios da 2ª passada, a dos mais recentes; padrão 40 no PC, 0 no GitHub) e
-// RAIOX_MAX (páginas de vendas lidas por rodada; padrão 40 no PC, 0 no GitHub).
+// RAIOX_MAX (páginas de vendas lidas por rodada; padrão 80 no PC, 0 no GitHub).
 
 import fs from "node:fs";
 import { raioX } from "./raiox.mjs";
@@ -31,7 +31,7 @@ const ORIGEM = process.env.GITHUB_ACTIONS ? "github" : "pc";
 // No GitHub a Meta corta a paginação e os cloakers mostram página branca para IP de
 // servidor: radar e raio-X só valem a pena no PC.
 const RADAR_MAX = Number(process.env.RADAR_MAX ?? (ORIGEM === "pc" ? 40 : 0));
-const RAIOX_MAX = Number(process.env.RAIOX_MAX ?? (ORIGEM === "pc" ? 40 : 0));
+const RAIOX_MAX = Number(process.env.RAIOX_MAX ?? (ORIGEM === "pc" ? 80 : 0));
 
 const espera = (min, max) => new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
 

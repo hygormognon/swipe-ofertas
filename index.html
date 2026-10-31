@@ -66,6 +66,17 @@
   .visao.on { border-color: var(--lar); background: var(--lar-sutil); }
   .visao.on b { color: var(--lar); }
   .alta { font-weight: 700; color: var(--amarelo); }
+  .lt-abas { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .lt-aba { border: 1px solid var(--s3); background: var(--s1); border-radius: 12px; padding: 9px 16px; color: var(--fraco); text-align: left; min-width: 170px; }
+  .lt-aba b { display: block; color: var(--txt); font-size: 15px; font-weight: 600; }
+  .lt-aba b span { color: var(--fraco); font-weight: 500; margin-left: 6px; }
+  .lt-aba small { font-size: 11.5px; }
+  .lt-aba.on { border-color: var(--lar); background: var(--lar-sutil); }
+  .lt-aba.on b { color: var(--lar); }
+  .ltm { font-size: 11.5px; color: var(--fraco); max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ltm.sim { color: var(--verde); }
+  .ltm.provavel { color: var(--amarelo); }
+  .ltm.nao { color: var(--vermelho); }
   .pag { font-size: 12px; color: var(--fraco); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pag .preco { color: var(--verde); font-weight: 600; }
   .chip.preco { color: var(--verde); border: 1px solid rgba(63, 182, 139, .4); font-weight: 600; }
@@ -173,7 +184,7 @@
   .filtros-ativos a { margin-left: 8px; }
   @media (max-width: 1280px) {
     .col-opc { display: none; }
-    .of .tit { max-width: 210px; }
+    .of .tit, .ltm { max-width: 210px; }
     .of { min-width: 230px; }
     .pag { max-width: 130px; }
     th, td { padding: 9px 7px; }
@@ -214,10 +225,16 @@
   <main>
     <!-- Ofertas -->
     <section id="aba-ofertas">
+      <div class="lt-abas" id="lt-abas">
+        <button class="lt-aba on" data-lt="low"><b>✅ Low ticket<span data-n="low"></span></b><small>preço até US$ 50 ou produto digital</small></button>
+        <button class="lt-aba" data-lt="conferir"><b>❔ A conferir<span data-n="conferir"></span></b><small>infoproduto sem sinal; o raio-X resolve</small></button>
+        <button class="lt-aba" data-lt="nao"><b>🚫 Não interessa<span data-n="nao"></span></b><small>físico, app, serviço, high ticket, lançamento</small></button>
+        <button class="lt-aba" data-lt="todos"><b>Tudo</b><small>sem separar</small></button>
+      </div>
       <div class="visoes" id="visoes">
         <button class="visao" data-visao="alta"><b>🔥 Em alta agora</b><small>anúncios novos, topo da busca, crescimento</small></button>
         <button class="visao" data-visao="novas"><b>Recém-descobertas</b><small>vistas pela 1ª vez nos últimos 7 dias</small></button>
-        <button class="visao" data-visao="low"><b>Low ticket com checkout</b><small>até US$ 50, pelo raio-X da página</small></button>
+        <button class="visao" data-visao="baratas"><b>Mais baratas</b><small>menor preço do front primeiro</small></button>
         <button class="visao" data-visao="escaladas"><b>Mais escaladas</b><small>tempo no ar e volume (score)</small></button>
       </div>
       <div class="filtros">
@@ -228,7 +245,13 @@
           <button class="fase-chip on" data-fase="validando">Validando</button>
           <button class="fase-chip on" data-fase="teste">Teste</button>
         </div>
+        <select id="f-ltconf" class="campo" title="Low ticket: com preço confirmado ou só provável">
+          <option value="">Confirmadas e prováveis</option>
+          <option value="sim">Só com preço confirmado</option>
+          <option value="provavel">Só prováveis (preço não lido)</option>
+        </select>
         <select id="f-tipo" class="campo" title="Tipo de oferta">
+          <option value="todos">Todos os tipos</option>
           <option value="info">Infoproduto</option>
           <option value="x1">X1 (WhatsApp)</option>
           <option value="fisico">Físico</option>
@@ -236,7 +259,6 @@
           <option value="marketplace">Marketplace</option>
           <option value="marca">Empresa/marca</option>
           <option value="outros">Outros</option>
-          <option value="todos">Todos os tipos</option>
         </select>
         <select id="f-min-dias" class="campo" title="Dias no ar">
           <option value="0">Qualquer idade</option>
@@ -270,7 +292,7 @@
           <option value="7">Descobertas em 7 dias</option>
           <option value="30">Descobertas em 30 dias</option>
         </select>
-        <select id="f-preco" class="campo" title="Preço do front (raio-X da página)">
+        <select id="f-preco" class="campo" title="Preço do front (da página ou do anúncio)">
           <option value="">Qualquer preço</option>
           <option value="10">Até US$ 10</option>
           <option value="20">Até US$ 20</option>
@@ -443,7 +465,7 @@ const dataBR = (v) => (v ? new Date(v).toLocaleString("pt-BR", { day: "2-digit",
 const diaBR = (v) => (v ? new Date(v + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "-");
 
 let senha = localStorage.getItem("swipe_senha") || "";
-let estado = { offset: 0, total: 0, config: null, buscas: [] };
+let estado = { offset: 0, total: 0, config: null, buscas: [], lt: "low" };
 
 async function api(acao, dados = {}) {
   const r = await fetch(API, {
@@ -547,6 +569,7 @@ function filtros() {
   return {
     texto: $("#f-texto").value,
     fases: $$("#f-fases .on").map((b) => b.dataset.fase),
+    lowticket: estado.lt === "todos" ? "" : estado.lt === "low" ? $("#f-ltconf").value || "low" : estado.lt,
     tipo: $("#f-tipo").value,
     min_dias: Number($("#f-min-dias").value),
     tendencia: $("#f-tendencia").value,
@@ -565,11 +588,11 @@ function filtros() {
 const TODAS_FASES = ["escalada", "veterana", "validando", "teste"];
 const FASES_PADRAO = TODAS_FASES;
 // Valores padrão dos filtros (a visão "Em alta agora"); as visões só mudam o que listam.
-const PADRAO = { "#f-tipo": "info", "#f-min-dias": "0", "#f-tendencia": "", "#f-busca": "", "#f-pais": "", "#f-marca": "", "#f-novas": "", "#f-preco": "", "#f-checkout": "", "#f-formato": "", "#f-ordem": "em_alta" };
+const PADRAO = { "#f-ltconf": "", "#f-tipo": "todos", "#f-min-dias": "0", "#f-tendencia": "", "#f-busca": "", "#f-pais": "", "#f-marca": "", "#f-novas": "", "#f-preco": "", "#f-checkout": "", "#f-formato": "", "#f-ordem": "em_alta" };
 const VISOES = {
   alta: { campos: {}, fases: TODAS_FASES },
   novas: { campos: { "#f-novas": "7" }, fases: TODAS_FASES },
-  low: { campos: { "#f-preco": "50", "#f-checkout": "1" }, fases: TODAS_FASES },
+  baratas: { campos: { "#f-ordem": "preco_usd" }, fases: TODAS_FASES },
   escaladas: { campos: { "#f-ordem": "score" }, fases: ["escalada", "veterana", "validando"] },
 };
 function aplicarFiltros(campos, fases) {
@@ -600,6 +623,17 @@ function resumoPagina(o) {
   const partes = [o.preco != null ? `<span class="preco">${esc(precoTxt(o.preco, o.moeda))}</span>` : "sem preço", o.checkout && esc(o.checkout.split(", ")[0]), o.formato_pagina && esc(o.formato_pagina)];
   return partes.filter(Boolean).join(" · ");
 }
+// Veredito low ticket na linha: preço e de onde ele veio, ou o motivo de ter caído fora.
+function ltTxt(o) {
+  if (!o.lt) return "";
+  if (o.lt === "sim") {
+    const preco = o.preco != null && o.lt_fonte !== "anuncio" ? precoTxt(o.preco, o.moeda) : `≈ US$ ${Number(o.lt_preco_usd).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`;
+    return `✅ ${preco} · ${o.lt_motivo}`;
+  }
+  if (o.lt === "provavel") return `◐ provável · ${o.lt_motivo}`;
+  if (o.lt === "nao") return `🚫 ${o.lt_motivo}`;
+  return `❔ ${o.lt_motivo}`;
+}
 const ORIGENS = { robo: "robô", "robo-pc": "PC (coleta completa)", "robo-github": "GitHub (só 1ª página)" };
 
 // Mostra ao lado da contagem quais filtros fogem do padrão, com um atalho para limpar.
@@ -610,7 +644,8 @@ function mostrarFiltrosAtivos() {
   if (f.texto) ativos.push(`texto "${f.texto}"`);
   if (f.busca) ativos.push(`busca "${f.busca}"`);
   if (f.pais) ativos.push(`país ${f.pais}`);
-  if (f.tipo !== "info") ativos.push(rotulo("#f-tipo"));
+  if ($("#f-ltconf").value && estado.lt === "low") ativos.push(rotulo("#f-ltconf"));
+  if (f.tipo !== "todos") ativos.push(rotulo("#f-tipo"));
   if (f.min_dias) ativos.push(rotulo("#f-min-dias"));
   if (f.tendencia) ativos.push(rotulo("#f-tendencia"));
   if (f.marca) ativos.push(rotulo("#f-marca"));
@@ -661,14 +696,16 @@ function thumb(src, cls = "thumb") {
 async function carregarOfertas(mais = false) {
   if (!mais) estado.offset = 0;
   try {
-    const r = await api("ofertas", { filtros: { ...filtros(), offset: estado.offset, limite: 100 } });
+    const r = await api("ofertas", { filtros: { ...filtros(), offset: estado.offset, limite: 100, contar_lt: !mais } });
     estado.total = r.total || 0;
+    if (r.por_lt) $$("#lt-abas [data-n]").forEach((el) => { el.textContent = num(r.por_lt[el.dataset.n]); });
     const html = (r.ofertas || []).map((o, i) => `
       <tr class="oferta" data-chave="${esc(o.chave)}">
         <td class="num" style="color:var(--apagado)">${estado.offset + i + 1}</td>
         <td><div class="of">${thumb(o.imagem_exemplo)}<div style="min-width:0">
           <div class="dom">${esc(o.dominio || (o.paginas_nomes || [])[0] || o.chave)}${urlSegura(o.link_exemplo) ? ` <a class="link-pagina" href="${urlSegura(o.link_exemplo)}" target="_blank" rel="noopener noreferrer" title="Abrir a página de vendas">página ↗</a>` : ""}</div>
-          <div class="tit">${esc(o.titulo_exemplo || o.texto_exemplo || "")}</div></div></div></td>
+          <div class="tit">${esc(o.titulo_exemplo || o.texto_exemplo || "")}</div>
+          <div class="ltm ${esc(o.lt)}">${esc(ltTxt(o))}</div></div></div></td>
         <td><span class="badge ${esc(o.fase)}">${esc(o.fase)}</span></td>
         <td class="num alta">${esc(o.em_alta ?? "-")}</td>
         <td class="num score">${esc(o.score)}</td>
@@ -682,7 +719,7 @@ async function carregarOfertas(mais = false) {
         <td class="marca-ic ${esc(o.marca)}">${o.marca === "favorita" ? "★" : o.marca === "analisar" ? "analisar" : o.marca === "descartada" ? "descartada" : ""}</td>
       </tr>`).join("");
     if (mais) $("#lista").insertAdjacentHTML("beforeend", html);
-    else $("#lista").innerHTML = html || `<tr><td colspan="13" class="vazio-msg">Nenhuma oferta com esses filtros${filtros().preco_max || filtros().com_checkout ? ". O raio-X lê 40 páginas por coleta do PC; as outras ainda não têm preço nem checkout." : estado.total === 0 && !mais ? ". Se o sistema acabou de ser criado, rode as buscas na aba Buscas." : "."}</td></tr>`;
+    else $("#lista").innerHTML = html || `<tr><td colspan="13" class="vazio-msg">Nenhuma oferta com esses filtros${filtros().preco_max || filtros().com_checkout || filtros().lowticket === "sim" ? ". O raio-X lê 80 páginas por coleta do PC; as outras ainda não têm preço nem checkout." : estado.total === 0 && !mais ? ". Se o sistema acabou de ser criado, rode as buscas na aba Buscas." : "."}</td></tr>`;
     estado.offset += (r.ofertas || []).length;
     $("#contagem").textContent = `${num(estado.total)} ofertas · mostrando ${num(estado.offset)}`;
     mostrarFiltrosAtivos();
@@ -693,6 +730,12 @@ async function carregarOfertas(mais = false) {
   }
 }
 $("#mais button").addEventListener("click", () => carregarOfertas(true));
+$$("#lt-abas .lt-aba").forEach((b) => b.addEventListener("click", () => {
+  estado.lt = b.dataset.lt;
+  $$("#lt-abas .lt-aba").forEach((x) => x.classList.toggle("on", x === b));
+  $("#f-ltconf").classList.toggle("esconde", estado.lt !== "low");
+  carregarOfertas();
+}));
 $("#lista").addEventListener("click", (e) => {
   if (e.target.closest("a")) return; // o link "página ↗" abre o site, não o painel
   const tr = e.target.closest("tr.oferta");
@@ -730,7 +773,7 @@ function paginasDe(anuncios) {
 }
 
 function raioX(o) {
-  if (!o.raiox_em) return `<p class="dica" style="margin:0">Página ainda não lida. A cada coleta, o robô do PC lê as 40 páginas das ofertas mais em alta que ainda não têm raio-X.</p>`;
+  if (!o.raiox_em) return `<p class="dica" style="margin:0">Página ainda não lida. A cada coleta, o robô do PC lê 80 páginas, primeiro as prováveis de low ticket.</p>`;
   const outros = (o.precos || []).filter((v) => Number(v) !== Number(o.preco));
   const chips = [
     o.preco != null ? `<span class="chip preco">${esc(precoTxt(o.preco, o.moeda))}</span>` : `<span class="chip">preço não achado</span>`,
@@ -780,6 +823,15 @@ async function abrirOferta(chave) {
         <div class="metrica"><div class="v">${num(o.novos_7d)}</div><div class="r">novos em 7 dias</div></div>
         <div class="metrica"><div class="v">${num(o.novos_3d)}</div><div class="r">novos em 3 dias</div></div>
         <div class="metrica" title="Anúncios entre os 20 primeiros de alguma busca (a Biblioteca ordena por impressões)"><div class="v">${num(o.topo)}</div><div class="r">no topo da busca</div></div>
+      </div>
+      <div class="secao"><h3>É low ticket?</h3>
+        <p style="margin:0 0 8px"><span class="ltm ${esc(o.lt)}" style="font-size:14px;max-width:none;white-space:normal">${esc(ltTxt(o))}</span></p>
+        <div class="acoes">
+          <button class="btn pequeno ${o.lt_manual === "sim" ? "on" : ""}" data-lt="sim">✅ É low ticket</button>
+          <button class="btn pequeno ${o.lt_manual === "nao" ? "on" : ""}" data-lt="nao">🚫 Não interessa</button>
+          ${o.lt_manual ? `<button class="btn pequeno" data-lt="">Voltar ao automático</button>` : ""}
+        </div>
+        <p class="dica">A separação é automática (preço na página ou no anúncio, tipo de oferta e palavras do anúncio). Se errar, corrija aqui: a sua marcação passa por cima do automático.</p>
       </div>
       <div class="secao"><h3>Raio-X da página de vendas</h3>${raioX(o)}</div>
       <div class="secao"><h3>Marcação</h3>
@@ -838,6 +890,14 @@ async function abrirOferta(chave) {
         carregarBuscas();
       } catch (e) { b.disabled = false; toast(e.message, true); }
     }));
+    $$("[data-lt]", painel).forEach((b) => b.addEventListener("click", async () => {
+      try {
+        await api("marcar", { chave, status: o.marca || null, nota: $("#nota").value || null, lt: b.dataset.lt });
+        toast(b.dataset.lt === "sim" ? "Marcada como low ticket" : b.dataset.lt === "nao" ? "Movida para Não interessa" : "Voltou ao veredito automático");
+        abrirOferta(chave);
+        carregarOfertas();
+      } catch (e) { toast(e.message, true); }
+    }));
     $$("[data-marca]", painel).forEach((b) => b.addEventListener("click", async () => {
       try {
         await api("marcar", { chave, status: b.dataset.marca, nota: $("#nota").value || null });
@@ -864,6 +924,7 @@ async function abrirOferta(chave) {
       const resumo = {
         dominio: o.dominio, fase: o.fase, score: o.score, dias_no_ar: o.dias_no_ar, anuncios_ativos: o.anuncios_ativos,
         variacoes: o.variacoes, paginas: o.paginas, novos_7d: o.novos_7d, tendencia: o.tendencia, em_alta: o.em_alta,
+        low_ticket: { veredito: o.lt, motivo: o.lt_motivo, preco_usd: o.lt_preco_usd },
         raio_x: o.raiox_em ? { preco: o.preco != null ? precoTxt(o.preco, o.moeda) : null, precos: o.precos, checkout: o.checkout, formato: o.formato_pagina, player: o.player, order_bump: o.order_bump, garantia_dias: o.garantia_dias } : null,
         link: o.link_exemplo, titulos: [...new Set(anuncios.map((a) => a.titulo).filter(Boolean))].slice(0, 5),
         biblioteca: o.biblioteca, paginas_nomes: o.paginas_nomes,

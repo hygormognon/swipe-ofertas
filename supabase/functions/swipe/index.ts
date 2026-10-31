@@ -349,9 +349,17 @@ async function baixar(b: any) {
 
 const ORDENS = new Set(["em_alta", "score", "dias_no_ar", "variacoes", "anuncios_ativos", "novos_7d", "paginas", "delta_ativos", "primeira_vez", "topo", "preco_usd"]);
 
+const LT = ["sim", "provavel", "conferir", "nao"];
+// Veredito low ticket: "low" junta as confirmadas (sim) e as prováveis.
 // deno-lint-ignore no-explicit-any
-async function ofertas(f: any) {
-  let q = SB.from("swipe_ofertas_v").select("*", { count: "exact" });
+function filtroLt(q: any, lt: unknown) {
+  if (lt === "low") return q.in("lt", ["sim", "provavel"]);
+  if (LT.includes(String(lt))) return q.eq("lt", lt);
+  return q;
+}
+
+// deno-lint-ignore no-explicit-any
+function filtrar(q: any, f: any) {
   if (f.tipo && f.tipo !== "todos") q = q.eq("tipo", f.tipo);
   if (Array.isArray(f.fases) && f.fases.length) q = q.in("fase", f.fases);
   if (f.min_dias) q = q.gte("dias_no_ar", Number(f.min_dias));
@@ -362,21 +370,35 @@ async function ofertas(f: any) {
   if (f.marca && f.marca !== "todas") q = q.eq("marca", f.marca === "sem" ? "" : f.marca);
   else if (!f.marca) q = q.neq("marca", "descartada");
   if (f.novas_dias) q = q.gte("primeira_vez", new Date(Date.now() - Number(f.novas_dias) * 86400_000).toISOString().slice(0, 10));
-  // Raio-X da página: preço convertido para dólar, checkout e formato.
-  if (f.preco_max) q = q.lte("preco_usd", Number(f.preco_max));
+  // Preço do front em dólar (da página pelo raio-X ou, sem ele, do texto do anúncio),
+  // checkout e formato.
+  if (f.preco_max) q = q.lte("lt_preco_usd", Number(f.preco_max));
   if (f.com_checkout) q = q.not("checkout", "is", null);
   if (f.formato_pagina) q = q.ilike("formato_pagina", `${String(f.formato_pagina).replace(/[%_*,()]/g, "")}%`);
   const t = String(f.texto ?? "").replace(/[,()*%\\]/g, " ").trim();
   if (t) q = q.or(`dominio.ilike.*${t}*,titulo_exemplo.ilike.*${t}*,texto_exemplo.ilike.*${t}*,titulo_pagina.ilike.*${t}*`);
+  return q;
+}
+
+// deno-lint-ignore no-explicit-any
+async function ofertas(f: any) {
+  let q = filtroLt(filtrar(SB.from("swipe_ofertas_v").select("*", { count: "exact" }), f), f.lowticket);
   const ordem = ORDENS.has(f.ordem) ? f.ordem : "score";
   // Preço em ordem crescente (o mais barato primeiro); o resto, do maior para o menor.
-  q = q.order(ordem, { ascending: ordem === "preco_usd", nullsFirst: false });
+  const coluna = ordem === "preco_usd" ? "lt_preco_usd" : ordem;
+  q = q.order(coluna, { ascending: ordem === "preco_usd", nullsFirst: false });
   if (ordem !== "score") q = q.order("score", { ascending: false });
   const limite = Math.min(Number(f.limite) || 100, 300);
   const inicio = Number(f.offset) || 0;
-  const { data, count, error } = await q.range(inicio, inicio + limite - 1);
+  // Quantas ofertas cada aba do veredito teria com os mesmos filtros.
+  const contar = (lt: string) => filtroLt(filtrar(SB.from("swipe_ofertas_v").select("chave", { count: "exact", head: true }), f), lt);
+  const [{ data, count, error }, ...contagens] = await Promise.all([
+    q.range(inicio, inicio + limite - 1),
+    ...(f.contar_lt ? ["low", "conferir", "nao"].map((lt) => contar(lt)) : []),
+  ]);
   if (error) throw error;
-  return { ofertas: data, total: count };
+  const por_lt = f.contar_lt ? { low: contagens[0].count ?? 0, conferir: contagens[1].count ?? 0, nao: contagens[2].count ?? 0 } : undefined;
+  return { ofertas: data, total: count, por_lt };
 }
 
 async function oferta(chave: string) {
@@ -445,11 +467,14 @@ async function raioxGravar(b: any) {
   };
   const { error } = await SB.from("swipe_paginas").upsert(linha);
   if (error) throw error;
-  if (linha.fisico) await SB.rpc("swipe_aplicar_raiox");
+  // Página física vira "fisico" e o preço lido refaz o veredito low ticket.
+  const r = await SB.rpc("swipe_aplicar_raiox");
+  if (r.error) throw r.error;
   return { ok: true };
 }
 
-// Recalcula o ranking e reaplica o que o raio-X sabe (página de loja física vira "fisico").
+// Recalcula o ranking e reaplica o que o raio-X sabe (página de loja física vira "fisico"),
+// o que também refaz o veredito low ticket.
 async function recalcular() {
   const { data, error } = await SB.rpc("swipe_recalcular");
   if (error) throw error;
@@ -516,11 +541,23 @@ async function rotear(acao: string, b: any, via: "senha" | "cron" | "coletor") {
       return await oferta(String(b.chave));
     case "marcar": {
       const chave = String(b.chave);
-      if (!b.status && !b.nota) {
+      // lt: "sim" ou "nao" corrige o veredito low ticket na mão; "" volta ao automático;
+      // ausente, mantém o que estava.
+      const mudaLt = b.lt !== undefined;
+      let lt = ["sim", "nao"].includes(b.lt) ? b.lt : null;
+      if (!mudaLt) {
+        const { data: atual } = await SB.from("swipe_marcas").select("lt").eq("chave", chave).maybeSingle();
+        lt = atual?.lt ?? null;
+      }
+      if (!b.status && !b.nota && !lt) {
         await SB.from("swipe_marcas").delete().eq("chave", chave);
       } else {
-        const { error } = await SB.from("swipe_marcas").upsert({ chave, status: b.status || null, nota: b.nota ?? null, atualizado_em: new Date().toISOString() });
+        const { error } = await SB.from("swipe_marcas").upsert({ chave, status: b.status || null, nota: b.nota ?? null, lt, atualizado_em: new Date().toISOString() });
         if (error) throw error;
+      }
+      if (mudaLt) {
+        const r = await SB.rpc("swipe_lowticket");
+        if (r.error) throw r.error;
       }
       return { ok: true };
     }

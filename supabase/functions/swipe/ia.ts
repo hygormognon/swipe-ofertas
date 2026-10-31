@@ -13,6 +13,7 @@ Como ler os números de uma oferta:
 - raio-X da página (quando já foi lido): preco e moeda do front (o menor preço da página; confira em precos), preco_usd (convertido por câmbio aproximado), checkout (plataformas detectadas), formato_pagina (vsl, quiz, tsl, página), player, order_bump e garantia_dias. Sem raio-X, esses campos vêm vazios.
 - fase: teste (menos de 7 dias), validando (7 a 30 dias, ou mais sem sinal de escala), escalada (30+ dias e 10+ variações, 2+ páginas ou 3+ anúncios novos na semana), veterana (90+ dias sem os sinais de escala).
 - tendência: compara com a foto de cerca de 7 dias atrás (nova, crescendo, estável, caindo, sumiu).
+- lt (veredito low ticket, com lt_motivo): sim (preço do front até US$ 50, lido na página ou escrito no anúncio; lt_preco_usd), provavel (produto digital, preço ainda não lido), conferir (infoproduto sem sinal), nao (físico, app, X1, marca, serviço, high ticket, preço alto, lançamento ou isca grátis). Quando o usuário falar em low ticket, filtre por lowticket.
 - tipo: info (infoproduto), x1 (WhatsApp), fisico (inclui anúncio de catálogo e página que o raio-X leu como loja física), marketplace, app, marca (empresa grande, banco, ONG, político, governo, universidade), outros.
 - A coleta começou em 30/10/2026, então tendência e histórico ainda são curtos.
 
@@ -58,6 +59,9 @@ const ofertaCurta = (o: any) => ({
   preco_usd: o.preco_usd ?? undefined,
   checkout: o.checkout || undefined,
   formato_pagina: o.formato_pagina || undefined,
+  lt: o.lt || undefined,
+  lt_motivo: o.lt_motivo || undefined,
+  lt_preco_usd: o.lt_preco_usd ?? undefined,
   titulo: corta(o.titulo_exemplo, 120),
   marca: o.marca || undefined,
   nota: o.nota || undefined,
@@ -80,7 +84,8 @@ function ferramentas(d: Deps) {
           tendencia: { type: "string", enum: ["nova", "crescendo", "estável", "caindo", "sumiu"] },
           busca: { type: "string", description: "Termo de busca exato que achou a oferta (ex.: 'instant access')." },
           novas_dias: { type: "integer", description: "Só ofertas vistas pela primeira vez nos últimos N dias." },
-          preco_max: { type: "number", description: "Preço máximo do front em dólar (pelo raio-X; exclui as que não têm preço lido)." },
+          lowticket: { type: "string", enum: ["low", "sim", "provavel", "conferir", "nao"], description: "Veredito low ticket. low = sim + provavel." },
+          preco_max: { type: "number", description: "Preço máximo do front em dólar (da página ou do anúncio; exclui as que não têm preço)." },
           com_checkout: { type: "boolean", description: "Só ofertas cuja página tem checkout detectado." },
           formato_pagina: { type: "string", enum: ["vsl", "quiz", "tsl", "página"] },
           ordem: { type: "string", enum: ["em_alta", "score", "dias_no_ar", "variacoes", "anuncios_ativos", "novos_7d", "paginas", "delta_ativos", "primeira_vez", "topo", "preco_usd"], description: "Padrão: score. Para o que está quente agora, em_alta." },
