@@ -288,13 +288,20 @@
         <h3>Coleta automática</h3>
         <div class="config-grade">
           <label>
-            Coleta diária (8h de Brasília)
+            Coleta automática diária
             <span class="interruptor"><input type="checkbox" id="c-ativo"> <span id="c-ativo-txt">ligada</span></span>
           </label>
+          <label>Fonte
+            <select id="c-fonte" class="campo">
+              <option value="robo">Robô próprio (grátis)</option>
+              <option value="apify">Apify (pago, precisa do token)</option>
+            </select>
+          </label>
           <label>Anúncios por busca (10 a 500)<input id="c-max-ads" class="campo" type="number" min="10" max="500"></label>
-          <label>Coletas ao mesmo tempo (1 a 10)<input id="c-paralelo" class="campo" type="number" min="1" max="10"></label>
+          <label>Coletas ao mesmo tempo no Apify (1 a 10)<input id="c-paralelo" class="campo" type="number" min="1" max="10"></label>
           <label>Janela de "anúncio visto" (dias)<input id="c-janela" class="campo" type="number" min="1" max="14"></label>
         </div>
+        <p class="dica"><b>Robô próprio:</b> roda no GitHub Actions de hora em hora e coleta cada busca que estiver há mais de 20 horas sem coleta (ou que você pediu na aba Buscas). Não custa nada, mas pode parar quando a Meta muda o site; se as coletas começarem a dar erro, troque para o Apify.</p>
         <p class="dica">A janela define até quantos dias um anúncio que não apareceu na última coleta continua contando para a oferta. Com coleta diária, 3 dias absorvem as variações da busca da Biblioteca.</p>
         <div style="margin-top:14px"><button class="btn primario" id="salvar-config">Salvar</button></div>
       </div>
@@ -407,11 +414,14 @@ async function carregarResumo() {
       <span>última coleta <b>${dataBR(r.ultima_coleta)}</b></span>
       <span>Apify 30d <b>US$ ${Number(r.custo_30d || 0).toFixed(2)}</b></span>`;
     const aviso = $("#aviso");
-    if (!r.apify) {
-      aviso.textContent = "Falta configurar o token do Apify no Supabase (secret APIFY_TOKEN). Sem ele a coleta não roda.";
+    const robo = r.config?.fonte !== "apify";
+    if (!robo && !r.apify) {
+      aviso.textContent = "A coleta está no modo Apify, mas falta o token (secret APIFY_TOKEN no Supabase). Volte para o robô próprio na aba Configuração ou cadastre o token.";
       aviso.classList.remove("esconde");
     } else if (r.na_fila) {
-      aviso.textContent = `${r.na_fila} coleta(s) na fila ou rodando. O ranking atualiza sozinho conforme terminam (de 5 em 5 minutos).`;
+      aviso.textContent = robo
+        ? `${r.na_fila} busca(s) na fila do robô. Ele roda de hora em hora e o ranking atualiza quando termina.`
+        : `${r.na_fila} coleta(s) na fila ou rodando no Apify. O ranking atualiza sozinho conforme terminam (de 5 em 5 minutos).`;
       aviso.classList.remove("esconde");
     } else {
       aviso.classList.add("esconde");
@@ -626,7 +636,9 @@ async function carregarBuscas() {
     const maxAds = estado.config?.max_ads ?? 100;
     const dia = ativas * (PRECO_EXECUCAO + maxAds * PRECO_ANUNCIO);
     $("#b-titulo").textContent = `Buscas (${ativas} ativas de ${buscas.length})`;
-    $("#b-custo").textContent = `custo máximo estimado: US$ ${dia.toFixed(2)}/dia · US$ ${(dia * 30).toFixed(0)}/mês`;
+    $("#b-custo").textContent = estado.config?.fonte === "apify"
+      ? `custo máximo estimado no Apify: US$ ${dia.toFixed(2)}/dia · US$ ${(dia * 30).toFixed(0)}/mês`
+      : `robô próprio: sem custo · roda de hora em hora`;
 
     $("#lista-buscas").innerHTML = buscas.map((b) => {
       const c = ultima.get(b.id);
@@ -672,7 +684,9 @@ $("#lista-buscas").addEventListener("click", async (e) => {
     } else if (el.dataset.acao === "rodar") {
       el.disabled = true;
       const r = await api("coletar", { ids: [id] });
-      toast(r.enfileiradas ? "Coleta iniciada. O resultado aparece em alguns minutos." : "Essa busca já está na fila ou rodando.");
+      toast(!r.enfileiradas ? "Essa busca já está na fila ou rodando."
+        : r.fonte === "apify" ? "Coleta iniciada no Apify. O resultado aparece em alguns minutos."
+        : "Na fila do robô. Ele pega na próxima rodada (de hora em hora).");
       carregarBuscas(); carregarResumo();
     } else if (el.dataset.acao === "apagar") {
       if (el.dataset.confirma !== "1") { el.dataset.confirma = "1"; el.textContent = "Confirmar"; return; }
@@ -690,7 +704,9 @@ $("#rodar-todas").addEventListener("click", async (e) => {
   e.target.disabled = true;
   try {
     const r = await api("coletar");
-    toast(`${r.enfileiradas} coleta(s) na fila. Rodam ${estado.config?.max_paralelo ?? 3} por vez; o ranking atualiza sozinho.`);
+    toast(r.fonte === "apify"
+      ? `${r.enfileiradas} coleta(s) na fila do Apify. Rodam ${estado.config?.max_paralelo ?? 3} por vez; o ranking atualiza sozinho.`
+      : `${r.enfileiradas} busca(s) na fila do robô. Ele pega na próxima rodada (de hora em hora).`);
     carregarBuscas(); carregarResumo();
   } catch (err) { toast(err.message, true); }
   e.target.disabled = false;
@@ -718,6 +734,7 @@ function preencherConfig() {
   const c = estado.config || {};
   $("#c-ativo").checked = c.ativo !== false;
   $("#c-ativo-txt").textContent = c.ativo !== false ? "ligada" : "desligada";
+  $("#c-fonte").value = c.fonte === "apify" ? "apify" : "robo";
   $("#c-max-ads").value = c.max_ads ?? 100;
   $("#c-paralelo").value = c.max_paralelo ?? 3;
   $("#c-janela").value = c.janela_dias ?? 3;
@@ -727,6 +744,7 @@ $("#salvar-config").addEventListener("click", async () => {
   try {
     const r = await api("config_salvar", {
       ativo: $("#c-ativo").checked,
+      fonte: $("#c-fonte").value,
       max_ads: Number($("#c-max-ads").value),
       max_paralelo: Number($("#c-paralelo").value),
       janela_dias: Number($("#c-janela").value),

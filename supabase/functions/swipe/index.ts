@@ -1,8 +1,13 @@
 // API do swipe de ofertas. Uma função só, roteada pelo campo `acao` do corpo.
 // - A tela manda `x-senha` (secret SWIPE_SENHA).
 // - O pg_cron manda `x-cron` (swipe_config.cron_key), para `coletar` e `processar`.
-// Coleta: uma execução do Apify por busca, até `max_paralelo` ao mesmo tempo. O cron
-// chama `processar` a cada 5 minutos para baixar as que terminaram e iniciar as da fila.
+// - O robô do GitHub Actions manda `x-coletor` (swipe_config.coletor_key), para
+//   `coletor_buscas`, `ingerir` e `recalcular`.
+// Duas fontes de coleta, escolhidas em swipe_config.coleta.fonte:
+// - "robo" (padrão): o robô roda de hora em hora, pede as buscas devidas, raspa a
+//   Biblioteca e manda os anúncios pelo `ingerir`. O cron do banco não faz nada.
+// - "apify": uma execução do Apify por busca, até `max_paralelo` ao mesmo tempo; o cron
+//   chama `processar` a cada 5 minutos para baixar as que terminaram.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SB = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
@@ -19,26 +24,26 @@ const CAMPOS = [
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "content-type, x-senha, x-cron, authorization, apikey",
+  "Access-Control-Allow-Headers": "content-type, x-senha, x-cron, x-coletor, authorization, apikey",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (d: unknown, status = 200) =>
   new Response(JSON.stringify(d), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 
-type Cfg = { ativo: boolean; max_ads: number; max_paralelo: number; janela_dias: number };
+type Cfg = { ativo: boolean; fonte: "robo" | "apify"; max_ads: number; max_paralelo: number; janela_dias: number };
 
 async function config(): Promise<Cfg> {
   const { data } = await SB.from("swipe_config").select("valor").eq("chave", "coleta").single();
-  return { ativo: true, max_ads: 100, max_paralelo: 3, janela_dias: 3, ...(data?.valor ?? {}) };
+  return { ativo: true, fonte: "robo", max_ads: 100, max_paralelo: 3, janela_dias: 3, ...(data?.valor ?? {}) };
 }
 
-let cronKey: string | null = null;
-async function chaveCron() {
-  if (cronKey === null) {
-    const { data } = await SB.from("swipe_config").select("valor").eq("chave", "cron_key").single();
-    cronKey = data?.valor?.k ?? "";
+const chaves: Record<string, string> = {};
+async function chaveInterna(nome: "cron_key" | "coletor_key") {
+  if (chaves[nome] === undefined) {
+    const { data } = await SB.from("swipe_config").select("valor").eq("chave", nome).maybeSingle();
+    chaves[nome] = data?.valor?.k ?? "";
   }
-  return cronKey;
+  return chaves[nome];
 }
 
 async function apify(caminho: string, init: RequestInit = {}) {
@@ -149,6 +154,63 @@ async function enfileirar(ids?: number[]) {
   return novas.length;
 }
 
+// Normaliza e grava um lote cru (formato do actor do Apify, que o robô também usa).
+// deno-lint-ignore no-explicit-any
+async function gravarItens(lote: any[], busca: { tipo: string; termo: string; pais: string }) {
+  const unicos = new Map<string, ReturnType<typeof normalizar>>();
+  for (const it of lote) {
+    if (it?.error) continue;
+    const a = normalizar(it, busca.tipo === "termo" ? busca.termo : `${busca.tipo}: ${busca.termo}`, busca.pais);
+    if (a) unicos.set(a.id, a);
+  }
+  const itens = [...unicos.values()];
+  for (let i = 0; i < itens.length; i += 500) {
+    const { error } = await SB.rpc("swipe_ingerir", { itens: itens.slice(i, i + 500) });
+    if (error) throw error;
+  }
+  return itens.length;
+}
+
+// Buscas que o robô deve rodar agora: as pedidas pela tela (coleta na fila) e as
+// ativas sem coleta boa nas últimas 20 horas, pulando as que deram erro há menos de 3.
+async function buscasDevidas() {
+  const cfg = await config();
+  const [{ data: buscas }, { data: recentes }] = await Promise.all([
+    SB.from("swipe_buscas").select("id,termo,tipo,pais,ativo").order("id"),
+    SB.from("swipe_coletas").select("busca_id,status,criado_em,processado_em").gte("criado_em", new Date(Date.now() - 20 * 3600_000).toISOString()),
+  ]);
+  const pedidas = new Set((recentes ?? []).filter((c) => c.status === "fila").map((c) => c.busca_id));
+  const feitas = new Set((recentes ?? []).filter((c) => c.status === "processada").map((c) => c.busca_id));
+  const comErro = new Set(
+    (recentes ?? []).filter((c) => c.status === "erro" && Date.now() - new Date(c.processado_em ?? c.criado_em).getTime() < 3 * 3600_000).map((c) => c.busca_id),
+  );
+  const devidas = (buscas ?? []).filter((b) =>
+    pedidas.has(b.id) || (cfg.ativo && b.ativo && !feitas.has(b.id) && !comErro.has(b.id))
+  );
+  return { buscas: devidas.slice(0, 40), max_ads: cfg.max_ads };
+}
+
+// deno-lint-ignore no-explicit-any
+async function ingerirDoRobo(b: any) {
+  const { data: busca, error } = await SB.from("swipe_buscas").select("*").eq("id", b.busca_id).single();
+  if (error) throw error;
+  const { data: fila } = await SB.from("swipe_coletas").select("id").eq("busca_id", busca.id).eq("status", "fila").order("id").limit(1);
+  const agora = new Date().toISOString();
+  let linha;
+  if (b.erro) {
+    linha = { status: "erro", erro: String(b.erro).slice(0, 500), processado_em: agora };
+  } else {
+    const n = await gravarItens(Array.isArray(b.itens) ? b.itens : [], busca);
+    linha = { status: "processada", anuncios: n, custo_usd: 0, processado_em: agora };
+  }
+  const base = { busca_id: busca.id, termo: busca.termo, tipo: busca.tipo, pais: busca.pais, iniciado_em: agora, run_id: "robo" };
+  const r = fila?.length
+    ? await SB.from("swipe_coletas").update({ ...linha, iniciado_em: agora, run_id: "robo" }).eq("id", fila[0].id)
+    : await SB.from("swipe_coletas").insert({ ...base, ...linha, max_ads: (await config()).max_ads });
+  if (r.error) throw r.error;
+  return { ok: true, anuncios: "anuncios" in linha ? linha.anuncios : 0 };
+}
+
 // deno-lint-ignore no-explicit-any
 async function baixarEGravar(c: any) {
   let total = 0;
@@ -159,18 +221,7 @@ async function baixarEGravar(c: any) {
     );
     if (!r.ok) throw new Error(`Apify ${r.status} ao baixar o dataset ${c.dataset_id}`);
     const lote = await r.json();
-    const unicos = new Map<string, ReturnType<typeof normalizar>>();
-    for (const it of lote) {
-      if (it?.error) continue;
-      const a = normalizar(it, c.tipo === "termo" ? c.termo : `${c.tipo}: ${c.termo}`, c.pais);
-      if (a) unicos.set(a.id, a);
-    }
-    const itens = [...unicos.values()];
-    for (let i = 0; i < itens.length; i += 500) {
-      const { error } = await SB.rpc("swipe_ingerir", { itens: itens.slice(i, i + 500) });
-      if (error) throw error;
-    }
-    total += itens.length;
+    total += await gravarItens(lote, c);
     if (lote.length < 1000) break;
   }
   return total;
@@ -179,6 +230,8 @@ async function baixarEGravar(c: any) {
 async function processar() {
   const cfg = await config();
   const saida = { processadas: 0, erros: 0, iniciadas: 0, rodando: 0 };
+  // Com o robô, a fila é dele: o Apify não entra.
+  if (cfg.fonte !== "apify") return saida;
   const { data: rodando } = await SB.from("swipe_coletas").select("*").eq("status", "rodando").order("iniciado_em");
   let mudou = false;
   for (const c of rodando ?? []) {
@@ -268,10 +321,19 @@ async function oferta(chave: string) {
   return { oferta: o.data, anuncios: ads.data ?? [], hist: hist.data ?? [] };
 }
 
+const PERMITIDAS: Record<string, string[]> = {
+  cron: ["coletar", "processar"],
+  coletor: ["coletor_buscas", "ingerir", "recalcular"],
+};
+
 // deno-lint-ignore no-explicit-any
-async function rotear(acao: string, b: any, viaCron: boolean) {
-  if (viaCron && !["coletar", "processar"].includes(acao)) throw new Error("ação não permitida pelo cron");
+async function rotear(acao: string, b: any, via: "senha" | "cron" | "coletor") {
+  if (via !== "senha" && !PERMITIDAS[via].includes(acao)) throw new Error(`ação não permitida para ${via}`);
   switch (acao) {
+    case "coletor_buscas":
+      return await buscasDevidas();
+    case "ingerir":
+      return await ingerirDoRobo(b);
     case "ping":
       return { ok: true, apify: Boolean(APIFY_TOKEN) };
     case "resumo": {
@@ -325,6 +387,7 @@ async function rotear(acao: string, b: any, viaCron: boolean) {
       const atual = await config();
       const novo = {
         ativo: b.ativo ?? atual.ativo,
+        fonte: b.fonte === "apify" ? "apify" : b.fonte === "robo" ? "robo" : atual.fonte,
         max_ads: Math.min(500, Math.max(10, Number(b.max_ads ?? atual.max_ads))),
         max_paralelo: Math.min(10, Math.max(1, Number(b.max_paralelo ?? atual.max_paralelo))),
         janela_dias: Math.min(14, Math.max(1, Number(b.janela_dias ?? atual.janela_dias))),
@@ -340,11 +403,12 @@ async function rotear(acao: string, b: any, viaCron: boolean) {
     }
     case "coletar": {
       const cfg = await config();
-      // O cron respeita o liga/desliga; o botão da tela roda sempre.
-      if (viaCron && !cfg.ativo) return { ok: true, desligada: true };
+      // O cron só dispara o Apify, e respeita o liga/desliga. Com o robô, ele mesmo
+      // decide o que está devido; o botão da tela só põe as buscas na fila dele.
+      if (via === "cron" && (!cfg.ativo || cfg.fonte !== "apify")) return { ok: true, ignorada: true };
       const n = await enfileirar(Array.isArray(b.ids) ? b.ids : undefined);
       const p = await processar();
-      return { enfileiradas: n, ...p };
+      return { enfileiradas: n, fonte: cfg.fonte, ...p };
     }
     case "processar":
       return await processar();
@@ -363,12 +427,15 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ erro: "use POST" }, 405);
   const senha = req.headers.get("x-senha") ?? "";
   const cron = req.headers.get("x-cron") ?? "";
-  const viaSenha = Boolean(SENHA) && senha === SENHA;
-  const viaCron = !viaSenha && Boolean(cron) && cron === (await chaveCron());
-  if (!viaSenha && !viaCron) return json({ erro: SENHA ? "senha incorreta" : "SWIPE_SENHA não configurada no Supabase" }, 401);
+  const coletor = req.headers.get("x-coletor") ?? "";
+  let via: "senha" | "cron" | "coletor" | null = null;
+  if (SENHA && senha === SENHA) via = "senha";
+  else if (cron && cron === (await chaveInterna("cron_key"))) via = "cron";
+  else if (coletor && coletor === (await chaveInterna("coletor_key"))) via = "coletor";
+  if (!via) return json({ erro: SENHA ? "senha incorreta" : "SWIPE_SENHA não configurada no Supabase" }, 401);
   try {
     const b = await req.json().catch(() => ({}));
-    return json(await rotear(String(b.acao ?? ""), b, viaCron));
+    return json(await rotear(String(b.acao ?? ""), b, via));
   } catch (e) {
     return json({ erro: String((e as Error).message ?? e) }, 400);
   }
