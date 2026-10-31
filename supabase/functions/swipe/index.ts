@@ -59,9 +59,13 @@ async function apify(caminho: string, init: RequestInit = {}) {
 
 // ---- Normalização: mesma lógica do minerar.mjs ----
 
-const REDES = /(^|\.)(facebook\.com|fb\.me|instagram\.com|youtube\.com|youtu\.be|tiktok\.com|linktr\.ee|t\.me|telegram\.me|m\.me)$/;
+const REDES = /(^|\.)(facebook\.com|fb\.com|fb\.me|fb\.watch|messenger\.com|instagram\.com|threads\.net|youtube\.com|youtu\.be|tiktok\.com|linktr\.ee|t\.me|telegram\.me|m\.me)$/;
 const X1 = /(^|\.)(wa\.me|whatsapp\.com|api\.whatsapp\.com|chat\.whatsapp\.com)$/;
-const APP = /(^|\.)(apps\.apple\.com|itunes\.apple\.com|play\.google\.com)$/;
+const APP = /(^|\.)(apps\.apple\.com|itunes\.apple\.com|play\.google\.com|adjust\.com|onelink\.me|app\.link|appsflyer\.com|go\.link)$/;
+// Marketplaces (físico) e plataformas de produto digital juntam muitos vendedores no mesmo
+// domínio: nos dois casos a oferta é agrupada por página, como nas redes.
+const MARKET = /(^|\.)(amazon\.[a-z.]+|amzn\.to|ebay\.[a-z.]+|walmart\.com|temu\.com|aliexpress\.com|shein\.com)$/;
+const PLATAFORMA = /(^|\.)(etsy\.com|teacherspayteachers\.com|gumroad\.com|udemy\.com|skillshare\.com|stan\.store|payhip\.com|ko-fi\.com|patreon\.com)$/;
 
 // O Postgres recusa o caractere nulo e metades soltas de emoji (comuns quando o texto
 // é cortado no meio de um par UTF-16); sem limpar, o lote inteiro volta como JSON inválido.
@@ -89,6 +93,7 @@ function classificar(texto: string, titulo: string, cta: string, link: string, d
   if (X1.test(dom)) return "x1";
   if (APP.test(dom)) return "app";
   if (REDES.test(dom)) return "outros";
+  if (MARKET.test(dom)) return "marketplace";
   if (/\/products?\/|\/collections\/|\/cart/.test(link) || /contra ?entrega|pago contra|frete gr[aá]tis|env[ií]o gratis|free shipping|cash on delivery/.test(txt)) return "fisico";
   return "info";
 }
@@ -103,7 +108,7 @@ function normalizar(it: any, busca: string, pais: string) {
   const cta = it.ctaText ?? "";
   const dom = dominioDe(link, it.linkCaption ?? "");
   const paginaId = String(it.pageId ?? "");
-  const chave = dom && !REDES.test(dom) && !X1.test(dom) && !APP.test(dom) ? dom : `pagina:${paginaId}`;
+  const chave = dom && !REDES.test(dom) && !X1.test(dom) && !APP.test(dom) && !MARKET.test(dom) && !PLATAFORMA.test(dom) ? dom : `pagina:${paginaId}`;
   const linha = {
     id,
     pagina_id: paginaId,
