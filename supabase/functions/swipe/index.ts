@@ -9,6 +9,7 @@
 // - "apify": uma execução do Apify por busca, até `max_paralelo` ao mesmo tempo; o cron
 //   chama `processar` a cada 5 minutos para baixar as que terminaram.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { perguntar } from "./ia.ts";
 
 const SB = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false },
@@ -365,6 +366,30 @@ async function oferta(chave: string) {
   return { oferta: o.data, anuncios: ads.data ?? [], hist: hist.data ?? [] };
 }
 
+// Ferramentas de leitura que o "Perguntar" usa.
+const depsIA = {
+  ofertas,
+  oferta,
+  resumo: async () => {
+    const [{ data, error }, { data: buscas }] = await Promise.all([
+      SB.rpc("swipe_resumo"),
+      SB.from("swipe_buscas").select("termo,tipo,pais,nicho,ativo").order("pais").order("termo"),
+    ]);
+    if (error) throw error;
+    return { ...data, buscas };
+  },
+  anuncios: async (texto: string, pais: string | null, limite: number) => {
+    const t = texto.replace(/[,()*%\\]/g, " ").trim();
+    let q = SB.from("swipe_anuncios")
+      .select("chave,dominio,pagina,inicio,variacoes,tipo,paises,titulo,texto")
+      .or(`titulo.ilike.*${t}*,texto.ilike.*${t}*`);
+    if (pais) q = q.contains("paises", [pais]);
+    const { data, error } = await q.order("variacoes", { ascending: false }).limit(limite);
+    if (error) throw error;
+    return data ?? [];
+  },
+};
+
 const PERMITIDAS: Record<string, string[]> = {
   cron: ["coletar", "processar"],
   coletor: ["coletor_buscas", "ingerir", "recalcular"],
@@ -379,11 +404,13 @@ async function rotear(acao: string, b: any, via: "senha" | "cron" | "coletor") {
     case "ingerir":
       return await ingerirDoRobo(b);
     case "ping":
-      return { ok: true, apify: Boolean(APIFY_TOKEN) };
+      return { ok: true, apify: Boolean(APIFY_TOKEN), ia: Boolean(Deno.env.get("ANTHROPIC_API_KEY")) };
+    case "perguntar":
+      return await perguntar(b, depsIA);
     case "resumo": {
       const [{ data, error }, cfg] = await Promise.all([SB.rpc("swipe_resumo"), config()]);
       if (error) throw error;
-      return { ...data, config: cfg, apify: Boolean(APIFY_TOKEN) };
+      return { ...data, config: cfg, apify: Boolean(APIFY_TOKEN), ia: Boolean(Deno.env.get("ANTHROPIC_API_KEY")) };
     }
     case "ofertas":
       return await ofertas(b.filtros ?? {});

@@ -134,6 +134,21 @@
   .interruptor { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
   .config-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
   .config-grade label { display: flex; flex-direction: column; gap: 6px; color: var(--fraco); font-size: 13px; }
+  /* Perguntar */
+  .chat { display: flex; flex-direction: column; gap: 12px; max-width: 900px; margin: 0 auto; }
+  .chat-lista { display: flex; flex-direction: column; gap: 12px; min-height: 120px; }
+  .msg { border-radius: 12px; padding: 12px 14px; line-height: 1.55; overflow-wrap: anywhere; }
+  .msg.usuario { background: var(--s2); align-self: flex-end; max-width: 80%; white-space: pre-wrap; }
+  .msg.ia { background: var(--s1); border: 1px solid var(--linha); }
+  .msg.ia code { background: var(--s2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .msg.ia ul { margin: 6px 0; padding-left: 20px; }
+  .msg.ia b { color: #fff; }
+  .msg.pensando { color: var(--fraco); font-style: italic; }
+  .chat-form { display: flex; gap: 8px; position: sticky; bottom: 12px; background: var(--bg); padding-top: 8px; }
+  .chat-form textarea { flex: 1; min-height: 52px; max-height: 200px; resize: vertical; }
+  .sugestoes { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sugestoes button { border: 1px solid var(--s3); background: var(--s1); border-radius: 999px; padding: 5px 11px; font-size: 12.5px; color: var(--fraco); }
+  .sugestoes button:hover { color: var(--txt); border-color: var(--lar); }
   #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--s2); border: 1px solid var(--s3); padding: 10px 16px; border-radius: 10px; z-index: 20; max-width: 90vw; }
   #toast.erro { border-color: var(--vermelho); }
 
@@ -161,6 +176,7 @@
       <div class="marca">Swipe de <span>Ofertas</span></div>
       <nav>
         <button data-aba="ofertas" class="ativa">Ofertas</button>
+        <button data-aba="perguntar">Perguntar</button>
         <button data-aba="buscas">Buscas</button>
         <button data-aba="coletas">Coletas</button>
         <button data-aba="config">Configuração</button>
@@ -239,6 +255,28 @@
         <tbody id="lista"></tbody>
       </table>
       <div class="mais esconde" id="mais"><button class="btn">Carregar mais</button></div>
+    </section>
+
+    <!-- Perguntar -->
+    <section id="aba-perguntar" class="esconde">
+      <div class="chat">
+        <div class="aviso esconde" id="ia-aviso" style="border-radius:10px"></div>
+        <div class="sugestoes" id="sugestoes">
+          <button>Quais são as 10 ofertas mais escaladas de infoproduto nos EUA e por quê?</button>
+          <button>O que está crescendo no Brasil esta semana?</button>
+          <button>Quais ofertas de PDF ou printable dá para modelar para low ticket em inglês?</button>
+          <button>Que padrões de gancho se repetem nas ofertas escaladas?</button>
+        </div>
+        <div class="chat-lista" id="chat-lista"></div>
+        <form class="chat-form" id="chat-form">
+          <textarea id="chat-texto" class="campo" placeholder="Pergunte qualquer coisa sobre as ofertas e anúncios do banco"></textarea>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button class="btn primario" id="chat-enviar">Perguntar</button>
+            <button class="btn pequeno" type="button" id="chat-limpar">Nova conversa</button>
+          </div>
+        </form>
+        <p class="dica" style="margin:0" id="chat-contexto"></p>
+      </div>
     </section>
 
     <!-- Buscas -->
@@ -418,6 +456,9 @@ async function carregarResumo() {
       <span><b>${num(r.anuncios)}</b> anúncios</span>
       <span>última coleta <b>${dataBR(r.ultima_coleta)}</b></span>
       <span>Apify 30d <b>US$ ${Number(r.custo_30d || 0).toFixed(2)}</b></span>`;
+    const iaAviso = $("#ia-aviso");
+    iaAviso.textContent = "Para usar o Perguntar, cadastre sua chave da API do Claude no Supabase como secret ANTHROPIC_API_KEY.";
+    iaAviso.classList.toggle("esconde", Boolean(r.ia));
     const aviso = $("#aviso");
     const robo = r.config?.fonte !== "apify";
     if (!robo && !r.apify) {
@@ -542,6 +583,7 @@ async function abrirOferta(chave) {
         ${urlSegura(o.link_exemplo) ? `<a class="btn pequeno" href="${urlSegura(o.link_exemplo)}" target="_blank" rel="noopener noreferrer">Abrir página</a>` : ""}
         ${(o.biblioteca || []).filter(urlSegura).map((u, i) => `<a class="btn pequeno" href="${urlSegura(u)}" target="_blank" rel="noopener noreferrer">Biblioteca ${i + 1}</a>`).join("")}
         <button class="btn pequeno" id="copiar">Copiar para o Claude</button>
+        <button class="btn pequeno" id="perguntar-oferta">Perguntar sobre esta oferta</button>
       </div>
       <div class="metricas">
         <div class="metrica"><div class="v" style="color:var(--lar)">${esc(o.score)}</div><div class="r">score</div></div>
@@ -609,6 +651,14 @@ async function abrirOferta(chave) {
         toast("Anotação salva");
       } catch (e) { toast(e.message, true); }
     });
+    $("#perguntar-oferta", painel).addEventListener("click", () => {
+      estado.chatChave = chave;
+      $("#chat-contexto").textContent = `Perguntando sobre ${o.dominio || (o.paginas_nomes || [])[0] || chave}. `;
+      $("#chat-contexto").insertAdjacentHTML("beforeend", `<a href="#" id="sair-contexto">Perguntar sobre o banco todo</a>`);
+      fecharPainel();
+      $('nav button[data-aba="perguntar"]').click();
+      $("#chat-texto").focus();
+    });
     $("#copiar", painel).addEventListener("click", async () => {
       const resumo = {
         dominio: o.dominio, fase: o.fase, score: o.score, dias_no_ar: o.dias_no_ar, anuncios_ativos: o.anuncios_ativos,
@@ -655,6 +705,68 @@ function fecharPainel() { $("#painel").classList.add("esconde"); $("#painel-fund
 $("#painel").addEventListener("click", (e) => { if (e.target.closest(".fechar")) fecharPainel(); });
 $("#painel-fundo").addEventListener("click", fecharPainel);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharPainel(); });
+
+// ---------- Perguntar ----------
+estado.chat = [];
+estado.chatChave = null;
+
+// Markdown mínimo sobre texto já escapado: negrito, código, listas e quebras.
+function markdown(texto) {
+  const linhas = esc(texto).split("\n");
+  let html = "", lista = false;
+  for (const l of linhas) {
+    const item = l.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)/);
+    if (item) {
+      if (!lista) { html += "<ul>"; lista = true; }
+      html += `<li>${item[1]}</li>`;
+      continue;
+    }
+    if (lista) { html += "</ul>"; lista = false; }
+    html += l.replace(/^#{1,4}\s*(.*)/, "<b>$1</b>") + "<br>";
+  }
+  if (lista) html += "</ul>";
+  return html.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/(<br>)+$/, "");
+}
+
+function desenharChat(pensando = false) {
+  $("#chat-lista").innerHTML = estado.chat.map((m) =>
+    m.papel === "usuario" ? `<div class="msg usuario">${esc(m.texto)}</div>` : `<div class="msg ia">${markdown(m.texto)}</div>`
+  ).join("") + (pensando ? `<div class="msg ia pensando">Consultando o banco…</div>` : "");
+  $("#sugestoes").classList.toggle("esconde", estado.chat.length > 0);
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
+async function enviarPergunta(texto) {
+  texto = texto.trim();
+  if (!texto) return;
+  const historico = estado.chat.slice();
+  estado.chat.push({ papel: "usuario", texto });
+  $("#chat-texto").value = "";
+  $("#chat-enviar").disabled = true;
+  desenharChat(true);
+  try {
+    const r = await api("perguntar", { pergunta: texto, historico, chave: estado.chatChave });
+    estado.chat.push({ papel: "ia", texto: r.resposta });
+  } catch (e) {
+    estado.chat.push({ papel: "ia", texto: `Não consegui responder: ${e.message}` });
+  } finally {
+    $("#chat-enviar").disabled = false;
+    desenharChat();
+  }
+}
+
+$("#chat-form").addEventListener("submit", (e) => { e.preventDefault(); enviarPergunta($("#chat-texto").value); });
+$("#chat-texto").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviarPergunta($("#chat-texto").value); }
+});
+$("#sugestoes button").forEach((b) => b.addEventListener("click", () => enviarPergunta(b.textContent)));
+$("#chat-limpar").addEventListener("click", () => { estado.chat = []; desenharChat(); });
+$("#chat-contexto").addEventListener("click", (e) => {
+  if (e.target.id !== "sair-contexto") return;
+  e.preventDefault();
+  estado.chatChave = null;
+  $("#chat-contexto").textContent = "";
+});
 
 // ---------- Buscas ----------
 async function carregarBuscas() {

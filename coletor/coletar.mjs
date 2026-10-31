@@ -157,7 +157,7 @@ async function coletar(browser, busca, max) {
   const vistos = new Map();
   let bloqueado = false;
   let html = "";
-  const diag = { graphql: 0, comAnuncios: 0, status: {} };
+  const diag = { graphql: 0, comAnuncios: 0, status: {}, nomes: {}, amostra: "" };
   const somar = (nos) => {
     for (const n of nos) if (!vistos.has(String(n.ad_archive_id))) vistos.set(String(n.ad_archive_id), converter(n));
   };
@@ -166,7 +166,15 @@ async function coletar(browser, busca, max) {
       const url = resp.url();
       const st = resp.status();
       if ((url.includes("ads/library") || url.includes("/api/graphql")) && (st === 429 || st === 403)) bloqueado = true;
-      if (url.includes("/api/graphql")) { diag.graphql++; diag.status[st] = (diag.status[st] || 0) + 1; }
+      if (url.includes("/api/graphql")) {
+        diag.graphql++;
+        diag.status[st] = (diag.status[st] || 0) + 1;
+        const nome = resp.request().headers()["x-fb-friendly-name"] || "?";
+        diag.nomes[nome] = (diag.nomes[nome] || 0) + 1;
+        if (/Search|Pagination/i.test(nome) && !diag.amostra) {
+          diag.amostra = (await resp.text().catch(() => "")).slice(0, 300);
+        }
+      }
       if (st !== 200) return;
       const metodo = resp.request().method();
       if (metodo === "GET" && url.includes("ads/library") && !html) {
