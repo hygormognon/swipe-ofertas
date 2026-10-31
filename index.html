@@ -116,7 +116,12 @@
   .anuncio .corpo { padding: 10px; font-size: 12.5px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
   .anuncio .meta { color: var(--fraco); font-size: 12px; }
   .anuncio .txt { color: #cfcfcf; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-  .anuncio .rodape { margin-top: auto; display: flex; gap: 10px; font-size: 12px; }
+  .anuncio .rodape { display: flex; gap: 10px; font-size: 12px; }
+  .btn-pagina { margin-top: auto; display: block; text-align: center; padding: 7px 10px; border: 1px solid var(--lar); border-radius: 8px; color: var(--lar); font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn-pagina:hover { background: var(--lar-sutil); text-decoration: none; }
+  .btn-pagina.secundario { border-color: var(--s3); color: var(--fraco); font-weight: 500; }
+  .btn-pagina small { font-weight: 400; opacity: .8; }
+  .link-pagina { font-size: 11.5px; font-weight: 500; margin-left: 6px; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip { background: var(--s2); border-radius: 999px; padding: 3px 9px; font-size: 12px; color: var(--fraco); }
 
@@ -540,6 +545,18 @@ function tendencia(o) {
   const d = o.delta_ativos ? ` (${o.delta_ativos > 0 ? "+" : ""}${o.delta_ativos})` : "";
   return `<span class="tend ${esc(t)}">${esc(TEND[t] || t)}${d}</span>`;
 }
+// Botão para a página de destino do anúncio, com o domínio à vista. Link para rede social
+// ou WhatsApp (formulário, X1) fica em cinza, porque não é página de vendas.
+const DESTINO_REDE = /(^|\.)(facebook\.com|fb\.com|fb\.me|instagram\.com|wa\.me|whatsapp\.com|m\.me|messenger\.com)$/;
+function botaoPagina(link, cta) {
+  const u = urlSegura(link);
+  if (!u) return `<span class="btn-pagina secundario">sem link de destino</span>`;
+  let dom = "";
+  try { dom = new URL(link).hostname.replace(/^www\./, ""); } catch { /* link estranho: mostra sem domínio */ }
+  const rede = DESTINO_REDE.test(dom);
+  return `<a class="btn-pagina${rede ? " secundario" : ""}" href="${u}" target="_blank" rel="noopener noreferrer" title="${u}">${rede ? "Abrir destino (rede/WhatsApp)" : "Abrir página de vendas"} ↗ <small>${esc(dom)}${cta ? " · " + esc(cta) : ""}</small></a>`;
+}
+
 function thumb(src, cls = "thumb") {
   const u = urlSegura(src);
   return u
@@ -556,7 +573,7 @@ async function carregarOfertas(mais = false) {
       <tr class="oferta" data-chave="${esc(o.chave)}">
         <td class="num" style="color:var(--apagado)">${estado.offset + i + 1}</td>
         <td><div class="of">${thumb(o.imagem_exemplo)}<div style="min-width:0">
-          <div class="dom">${esc(o.dominio || (o.paginas_nomes || [])[0] || o.chave)}</div>
+          <div class="dom">${esc(o.dominio || (o.paginas_nomes || [])[0] || o.chave)}${urlSegura(o.link_exemplo) ? ` <a class="link-pagina" href="${urlSegura(o.link_exemplo)}" target="_blank" rel="noopener noreferrer" title="Abrir a página de vendas">página ↗</a>` : ""}</div>
           <div class="tit">${esc(o.titulo_exemplo || o.texto_exemplo || "")}</div></div></div></td>
         <td><span class="badge ${esc(o.fase)}">${esc(o.fase)}</span></td>
         <td class="num score">${esc(o.score)}</td>
@@ -581,6 +598,7 @@ async function carregarOfertas(mais = false) {
 }
 $("#mais button").addEventListener("click", () => carregarOfertas(true));
 $("#lista").addEventListener("click", (e) => {
+  if (e.target.closest("a")) return; // o link "página ↗" abre o site, não o painel
   const tr = e.target.closest("tr.oferta");
   if (tr) abrirOferta(tr.dataset.chave);
 });
@@ -622,7 +640,7 @@ async function abrirOferta(chave) {
         <span class="chip">vista pela 1ª vez em ${diaBR(o.primeira_vez)}</span>
       </div>
       <div class="links">
-        ${urlSegura(o.link_exemplo) ? `<a class="btn pequeno" href="${urlSegura(o.link_exemplo)}" target="_blank" rel="noopener noreferrer">Abrir página</a>` : ""}
+        ${urlSegura(o.link_exemplo) ? `<a class="btn pequeno primario" href="${urlSegura(o.link_exemplo)}" target="_blank" rel="noopener noreferrer">Abrir página de vendas ↗</a>` : ""}
         ${(o.biblioteca || []).filter(urlSegura).map((u, i) => `<a class="btn pequeno" href="${urlSegura(u)}" target="_blank" rel="noopener noreferrer">Biblioteca ${i + 1}</a>`).join("")}
         <button class="btn pequeno" id="copiar">Copiar para o Claude</button>
         <button class="btn pequeno" id="perguntar-oferta">Perguntar sobre esta oferta</button>
@@ -664,11 +682,10 @@ async function abrirOferta(chave) {
                 <div class="meta">${esc(a.pagina)} · ${a.ativo === false ? "inativo" : "ativo"} · desde ${diaBR(a.inicio)} · ${num(a.variacoes)} var.</div>
                 ${a.titulo ? `<b>${esc(a.titulo)}</b>` : ""}
                 <div class="txt">${esc(a.texto)}</div>
+                ${botaoPagina(a.link, a.cta)}
                 <div class="rodape">
                   ${a.video ? `<a href="#" data-baixar="${esc(a.id)}" data-tipo="video">Baixar vídeo</a>` : a.imagem ? `<a href="#" data-baixar="${esc(a.id)}" data-tipo="imagem">Baixar imagem</a>` : ""}
-                  ${urlSegura(a.url_biblioteca) ? `<a href="${urlSegura(a.url_biblioteca)}" target="_blank" rel="noopener noreferrer">Biblioteca</a>` : ""}
-                  ${urlSegura(a.link) ? `<a href="${urlSegura(a.link)}" target="_blank" rel="noopener noreferrer">Destino</a>` : ""}
-                  ${a.cta ? `<span style="color:var(--fraco)">${esc(a.cta)}</span>` : ""}
+                  ${urlSegura(a.url_biblioteca) ? `<a href="${urlSegura(a.url_biblioteca)}" target="_blank" rel="noopener noreferrer">Ver na Biblioteca</a>` : ""}
                 </div>
               </div>
             </div>`).join("")}

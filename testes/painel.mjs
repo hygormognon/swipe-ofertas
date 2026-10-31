@@ -3,7 +3,7 @@
 import { chromium } from "../coletor/node_modules/playwright/index.mjs";
 const html = new URL("../index.html", import.meta.url).href;
 const chamadas = [];
-const oferta = (i, extra = {}) => ({ chave: `oferta${i}.com`, dominio: `oferta${i}.com`, tipo: "info", fase: "escalada", score: 20 - i, dias_no_ar: 100, anuncios_ativos: 5, variacoes: 9, paginas: 2, novos_7d: 1, tendencia: "nova", paises: ["US"], buscas: ["instant access"], titulo_exemplo: "Titulo " + i, texto_exemplo: "texto", imagem_exemplo: null, biblioteca: [], paginas_nomes: ["Pag"], marca: "", formatos: { VIDEO: 2 }, ...extra });
+const oferta = (i, extra = {}) => ({ chave: `oferta${i}.com`, dominio: `oferta${i}.com`, tipo: "info", fase: "escalada", score: 20 - i, dias_no_ar: 100, anuncios_ativos: 5, variacoes: 9, paginas: 2, novos_7d: 1, tendencia: "nova", paises: ["US"], buscas: ["instant access"], titulo_exemplo: "Titulo " + i, texto_exemplo: "texto", imagem_exemplo: null, biblioteca: [], paginas_nomes: ["Pag"], marca: "", formatos: { VIDEO: 2 }, link_exemplo: `https://oferta${i}.com/vsl`, ...extra });
 const respostas = {
   ping: { ok: true, ia: false },
   resumo: { fases: { escalada: 3 }, anuncios: 10, novas_hoje: 1, ultima_coleta: new Date().toISOString(), na_fila: 0, custo_30d: 0, config: { fonte: "robo", ativo: true, max_ads: 100 }, ia: false },
@@ -13,6 +13,7 @@ const respostas = {
 };
 const browser = await chromium.launch();
 const page = await browser.newPage();
+await page.context().route("https://oferta*.com/**", (r) => r.fulfill({ body: "pagina de vendas" }));
 const erros = [];
 page.on("pageerror", (e) => erros.push("pageerror: " + e.message));
 page.on("console", (m) => m.type() === "error" && erros.push("console: " + m.text()));
@@ -36,7 +37,18 @@ const passo = async (nome, fn) => { try { await fn(); console.log("ok  ", nome);
 await passo("lista de ofertas aparece", async () => { await page.waitForSelector("tr.oferta", { timeout: 3000 }); });
 await passo("abre painel da oferta", async () => { await page.click("tr.oferta"); await page.waitForSelector("#painel:not(.esconde) h2", { timeout: 3000 }); });
 await passo("player de video no painel", async () => { await page.waitForSelector("#painel video", { timeout: 2000 }); });
+await passo("botão da página de vendas no anúncio", async () => {
+  const href = await page.$eval("#painel .anuncio .btn-pagina", (a) => a.href);
+  const texto = await page.textContent("#painel .anuncio .btn-pagina");
+  if (href !== "https://oferta1.com/" || !texto.includes("página de vendas") || !texto.includes("oferta1.com")) throw new Error(`${href} | ${texto}`);
+});
 await passo("fecha painel", async () => { await page.click("#painel .fechar"); await page.waitForSelector("#painel.esconde", { state: "attached", timeout: 2000 }); });
+await passo("link da página na lista não abre o painel", async () => {
+  const [nova] = await Promise.all([page.context().waitForEvent("page", { timeout: 3000 }), page.click("tr.oferta .link-pagina")]);
+  await nova.close();
+  await page.waitForTimeout(400);
+  if (await page.isVisible("#painel")) throw new Error("abriu o painel junto");
+});
 await passo("aba buscas lista", async () => { await page.click('nav button[data-aba="buscas"]'); await page.waitForSelector("#lista-buscas tr[data-id]", { timeout: 3000 }); });
 await passo("ver ofertas da busca", async () => {
   await page.click('#lista-buscas tr[data-id="1"] [data-acao="ver"]');
